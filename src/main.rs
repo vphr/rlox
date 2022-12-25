@@ -1,3 +1,5 @@
+mod ast_printer;
+mod expr;
 mod scanner;
 
 use std::{
@@ -6,6 +8,10 @@ use std::{
     io::{stdin, stdout, Result, Write},
     process::exit,
 };
+
+use expr::*;
+use scanner::Token;
+use ast_printer::*;
 
 fn main() -> Result<()> {
     let args: Vec<_> = args().collect();
@@ -41,7 +47,31 @@ fn run_prompt() -> Result<()> {
 
 fn run(source: &str) {
     let scanner = scanner::Scanner::default().scan_tokens(source.to_string());
-    // let scanner = scanner::scan_tokens(source.to_string());
     print!("{:#?}", scanner);
-}
 
+    // let expression = Expr::Binary(BinaryExpr {
+    //     left: Box::new(Expr::Unary(UnaryExpr {
+    //         operator: Token {
+    //             token_type: scanner::TokenType::Minus,
+    //             lexeme: "-".as_bytes().to_vec(),
+    //             literal: None,
+    //             line: 1,
+    //         },
+    //         right: Box::new(Expr::Literal(LiteralExpr {
+    //             value: Some(scanner::Literal::Number(123.0)),
+    //         })),
+    //     })),
+    //     operator: Token {
+    //         token_type: scanner::TokenType::Star,
+    //         lexeme: "*".as_bytes().to_vec(),
+    //         literal: None,
+    //         line: 1,
+    //     },
+    //     right: Box::new(Expr::Grouping(GroupingExpr {
+    //         expression: Box::new(Expr::Literal(LiteralExpr {
+    //             value: Some(scanner::Literal::Number(45.67)),
+    //         })),
+    //     })),
+    // });
+    // println!("{:#?}", AstPrinter{}.print(&expression));
+}

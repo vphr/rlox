@@ -272,10 +272,10 @@ pub enum Literal {
 
 #[derive(Debug, Clone)]
 pub struct Token {
-    token_type: TokenType,
-    lexeme: Vec<u8>,
-    literal: Option<Literal>,
-    line: usize,
+    pub token_type: TokenType,
+    pub lexeme: Vec<u8>,
+    pub literal: Option<Literal>,
+    pub line: usize,
 }
 
 #[derive(Debug)]
