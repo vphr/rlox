@@ -2,16 +2,19 @@ mod ast_printer;
 mod expr;
 mod scanner;
 mod parser;
+mod error;
 
 use std::{
     env::args,
     fs::read_to_string,
-    io::{stdin, stdout, Result, Write},
+    io::{stdin, stdout, Write},
     process::exit,
 };
+use error::RloxError;
+
 use crate::{parser::*, ast_printer::AstPrinter};
 
-fn main() -> Result<()> {
+fn main() -> std::io::Result<()> {
     let args: Vec<_> = args().collect();
     if args.len() > 2 {
         println!("Usage: rlox [script]");
@@ -23,14 +26,14 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_file(path: &str) -> Result<()> {
+fn run_file(path: &str) -> std::io::Result<()> {
     let file = read_to_string(path)?;
     println!("{:#?}", file);
     run(&file);
     Ok(())
 }
 
-fn run_prompt() -> Result<()> {
+fn run_prompt() -> std::io::Result<()> {
     Ok(loop {
         print!("> ");
         stdout().flush()?;
@@ -43,8 +46,8 @@ fn run_prompt() -> Result<()> {
     })
 }
 
-fn run(source: &str) {
-    let scanner = scanner::Scanner::default().scan_tokens(source.to_string());
+fn run(source: &str) -> Result<(), RloxError> {
+    let scanner = scanner::Scanner::default().scan_tokens(source.to_string())?;
     let mut parser = Parser{ tokens: scanner.to_vec(), current: 0 };
     // println!("{:#?}", scanner);
     let expr = parser.parse();
@@ -77,4 +80,5 @@ fn run(source: &str) {
     //     })),
     // });
     // println!("{:#?}", AstPrinter{}.print(&expression));
+    Ok(())
 }

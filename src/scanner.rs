@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::error::*;
+
 #[derive(Debug, Clone)]
 pub struct Scanner {
     source: Vec<u8>,
@@ -42,11 +44,11 @@ impl Default for Scanner {
     }
 }
 impl Scanner {
-    pub fn scan_tokens(&mut self, input: String) -> Vec<Token> {
+    pub fn scan_tokens(&mut self, input: String) -> Result<Vec<Token>, RloxError> {
         self.source = input.into_bytes();
         while !self.is_end() {
             self.start = self.current;
-            self.scan_token();
+            self.scan_token()?;
         }
         self.tokens.push({
             Token {
@@ -56,13 +58,13 @@ impl Scanner {
                 line: self.line,
             }
         });
-        self.tokens.to_vec()
+        Ok(self.tokens.to_vec())
     }
     fn is_end(&self) -> bool {
         self.current >= self.source.len()
     }
 
-    fn scan_token(&mut self) {
+    fn scan_token(&mut self) -> Result<(), RloxError> {
         let token = self.advance();
         match token {
             '(' => self.add_token(TokenType::LeftParen, None),
@@ -77,47 +79,58 @@ impl Scanner {
             '*' => self.add_token(TokenType::Star, None),
             '!' => {
                 if self.match_next_token('=') {
-                    self.add_token(TokenType::BangEqual, None);
+                    self.add_token(TokenType::BangEqual, None)
                 } else {
-                    self.add_token(TokenType::Bang, None);
+                    self.add_token(TokenType::Bang, None)
                 }
             }
             '=' => {
                 if self.match_next_token('=') {
-                    self.add_token(TokenType::EqualEqual, None);
+                    self.add_token(TokenType::EqualEqual, None)
                 } else {
-                    self.add_token(TokenType::Equal, None);
+                    self.add_token(TokenType::Equal, None)
                 }
             }
             '<' => {
                 if self.match_next_token('=') {
-                    self.add_token(TokenType::LessEqual, None);
+                    self.add_token(TokenType::LessEqual, None)
                 } else {
-                    self.add_token(TokenType::Less, None);
+                    self.add_token(TokenType::Less, None)
                 }
             }
             '>' => {
                 if self.match_next_token('=') {
-                    self.add_token(TokenType::GreaterEqual, None);
+                    self.add_token(TokenType::GreaterEqual, None)
                 } else {
-                    self.add_token(TokenType::Greater, None);
+                    self.add_token(TokenType::Greater, None)
                 }
             }
             '/' if self.match_next_token('/') => {
                 while self.peek() != '\n' && !self.is_end() {
                     self.advance();
-                }
+                };
+                Ok(())
             }
-            '"' => self.string(),
-            '0'..='9' => self.number(),
+            '"' => {
+                self.string();
+                Ok(())
+            }
+            '0'..='9' => {
+                self.number();
+                Ok(())
+            }
             '/' => self.add_token(TokenType::Slash, None),
-            ' ' | '\r' | '\t' => {}
-            '\n' => self.line += 1,
+            ' ' | '\r' | '\t' => Ok(()),
+            '\n' => {
+                self.line += 1;
+                Ok(())
+            }
             _ => {
                 if token.is_alphabetic() {
                     self.identifier();
+                    Ok(())
                 } else {
-                    unimplemented!("unhandled token: {}", token);
+                    Err(RloxError::ParseError { character: token, message: "unhandled token {}".to_string() })
                 }
             }
         }
@@ -127,14 +140,15 @@ impl Scanner {
         char::from(self.source[self.current - 1])
     }
 
-    fn add_token(&mut self, token: TokenType, literal: Option<Literal>) {
+    fn add_token(&mut self, token: TokenType, literal: Option<Literal>) -> Result<(), RloxError> {
         let lexeme = self.source[self.start..self.current].to_owned();
         self.tokens.push(Token {
             token_type: token,
             lexeme,
             literal,
             line: self.line,
-        })
+        });
+        return Ok(())
     }
     fn match_next_token(&mut self, match_token: char) -> bool {
         if self.is_end() {
@@ -204,7 +218,7 @@ impl Scanner {
                 TokenType::Identifier,
                 Some(Literal::Identifier(string_value)),
             ),
-        }
+        };
     }
 }
 
@@ -276,16 +290,4 @@ pub struct Token {
     pub lexeme: Vec<u8>,
     pub literal: Option<Literal>,
     pub line: usize,
-}
-
-#[derive(Debug)]
-pub struct RloxError {
-    line: usize,
-    message: String,
-}
-
-impl RloxError {
-    fn report(line: usize, message: String, location: String) -> String {
-        format!("[line {}] Error {}: {}", line, location, message)
-    }
 }
