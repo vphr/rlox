@@ -212,7 +212,7 @@ impl Scanner {
 //     let mut scanner = Scanner::default();
 //     scanner.scan_tokens(input)
 // }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,

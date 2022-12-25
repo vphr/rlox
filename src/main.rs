@@ -1,6 +1,7 @@
 mod ast_printer;
 mod expr;
 mod scanner;
+mod parser;
 
 use std::{
     env::args,
@@ -8,10 +9,7 @@ use std::{
     io::{stdin, stdout, Result, Write},
     process::exit,
 };
-
-use expr::*;
-use scanner::Token;
-use ast_printer::*;
+use crate::{parser::*, ast_printer::AstPrinter};
 
 fn main() -> Result<()> {
     let args: Vec<_> = args().collect();
@@ -47,7 +45,12 @@ fn run_prompt() -> Result<()> {
 
 fn run(source: &str) {
     let scanner = scanner::Scanner::default().scan_tokens(source.to_string());
-    print!("{:#?}", scanner);
+    let mut parser = Parser{ tokens: scanner.to_vec(), current: 0 };
+    // println!("{:#?}", scanner);
+    let expr = parser.parse();
+    // println!("{:#?}", expr);
+
+    println!("{:#?}", AstPrinter{}.print(&expr));
 
     // let expression = Expr::Binary(BinaryExpr {
     //     left: Box::new(Expr::Unary(UnaryExpr {
