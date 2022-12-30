@@ -16,20 +16,14 @@ impl TreeType {
         }
     }
 }
-fn main() -> std::io::Result<()> {
-    let args: Vec<_> = std::env::args().collect();
-    if args.len() > 2 {
-        println!("Usage: rlox [script]");
-        std::process::exit(64);
-    }
-    let output_dir = args.get(1).unwrap();
+pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
     define_ast(
         &output_dir,
         "Expr",
         vec![
             "Binary   : Box<Expr> left, Token operator, Box<Expr> right",
             "Grouping : Box<Expr> expression",
-            "Literal  : Literal value",
+            "Literal  : Option<Literal> value",
             "Unary    : Token operator, Box<Expr> right",
         ],
     )?;
@@ -39,7 +33,7 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
     let path = format!("{}/{}.rs", output_dir, filename.to_lowercase());
     let mut file = File::create(path)?;
     let mut tree_types: Vec<TreeType> = Vec::new();
-    write!(file, "{}", "use crate::scanner::*;\n")?;
+    write!(file, "{}", "use crate::{scanner::*, error::RloxError};\n")?;
     for types in types_vec {
         let (base_name, fields) = types
             .split_once(":")
@@ -55,18 +49,35 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
         let class_name = format!("{}{}", base_name, filename);
         tree_types.push(TreeType::new(base_name.to_string(), class_name, fields))
     }
-    write!(file, "#[derive(Debug)]\n")?;
+    write!(file, "#[derive(Debug, Clone)]\n")?;
     write!(file, "pub enum {} {{\n", filename)?;
     for t in &tree_types {
         write!(file, "\t{}({}),\n", t.base_name, t.class_name)?;
     }
+    write!(file, "}}\n\n")?;
+
+    write!(file, "impl Expr {{\n")?;
+    write!(
+        file,
+        "\tpub fn accept<T>(&self, expr_visitor: &dyn ExprVisitor<T>) -> Result<T,RloxError> {{\n"
+    )?;
+    write!(file, "\t\tmatch self {{\n")?;
+    for t in &tree_types {
+        write!(
+            file,
+            "\t\t\t Expr::{}(exp) => exp.accept(expr_visitor),\n",
+            t.base_name
+        )?;
+    }
+    write!(file, "\t\t}}\n")?;
+    write!(file, "\t}}\n")?;
     write!(file, "}}\n")?;
 
     for t in &tree_types {
-        write!(file, "#[derive(Debug)]\n")?;
+        write!(file, "#[derive(Debug, Clone)]\n")?;
         write!(file, "pub struct {} {{\n", t.class_name)?;
         for f in &t.fields {
-            write!(file, "\t{},\n", f)?;
+            write!(file, "\t pub {},\n", f)?;
         }
         write!(file, "}}\n\n")?;
     }
@@ -75,7 +86,7 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
         let base = t.base_name.to_lowercase();
         write!(
             file,
-            "\t fn visit_{}_{}(&self, {}: &{}) -> T;\n",
+            "\t fn visit_{}_{}(&self, {}: &{}) -> Result<T, RloxError>;\n",
             base,
             filename.to_lowercase(),
             base,
@@ -88,7 +99,7 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
         write!(file, "impl {} {{\n", t.class_name)?;
         write!(
             file,
-            "\tfn accept<T>(&self, visitor: &dyn ExprVisitor<T>) -> T {{\n",
+            "\tfn accept<T>(&self, visitor: &dyn ExprVisitor<T>) -> Result<T,RloxError> {{\n",
         )?;
         write!(
             file,
