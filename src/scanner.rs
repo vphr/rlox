@@ -177,8 +177,8 @@ impl Scanner {
             self.advance();
         }
         if self.is_end() {
-            return Err(RloxError::ScanError {
-                character: self.source[self.current] as char,
+            return Err(RloxError::UnterminatedStringError {
+                token: String::from_utf8(self.source[self.start..self.current-1].to_vec()).expect("valid string range"),
                 message: "unhandled: unterminated string".to_string(),
             });
         }

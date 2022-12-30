@@ -41,7 +41,10 @@ fn run_prompt() -> std::io::Result<()> {
         if line.trim().is_empty() {
             break;
         }
-        run(&line);
+        match run(&line) {
+            Ok(_) => {},
+            Err(e) => { e.report();},
+        }
     })
 }
 
@@ -51,7 +54,9 @@ fn run(source: &str) -> Result<(), RloxError> {
         tokens: scanner.to_vec(),
         current: 0,
     };
+    println!("{:#?}", scanner);
     let expr = parser.parse()?;
+    println!("{:#?}", expr);
 
     let interpreter = interpreter::Interpreter{};
     interpreter.interpret(expr);

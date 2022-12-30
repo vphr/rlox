@@ -1,128 +1,106 @@
+use crate::error::RloxError;
 use crate::expr::*;
 use crate::scanner::*;
 
 pub struct Interpreter {}
+pub enum Value {
+    Str(String),
+    Number(f64),
+    Bool(bool),
+    Nil,
+}
 
-impl ExprVisitor<Option<Literal>> for Interpreter {
-    fn visit_binary_expr(&self, expr: &BinaryExpr) -> Option<Literal> {
+impl ExprVisitor<Value> for Interpreter {
+    fn visit_binary_expr(&self, expr: &BinaryExpr) -> Result<Value, RloxError> {
         let left = self.evaluate(*expr.left.clone())?;
         let right = self.evaluate(*expr.right.clone())?;
         match (left, right) {
-            (Literal::Number(l), Literal::Number(r)) => match expr.operator.token_type {
-                TokenType::Minus => Some(Literal::Number(l - r)),
-                TokenType::Slash => Some(Literal::Number(l / r)),
-                TokenType::Star => Some(Literal::Number(l * r)),
-                TokenType::Plus => Some(Literal::Number(l + r)),
-                TokenType::Greater => {
-                    if l > r {
-                        Some(Literal::True)
-                    } else {
-                        Some(Literal::False)
-                    }
-                }
-                TokenType::GreaterEqual => {
-                    if l >= r {
-                        Some(Literal::True)
-                    } else {
-                        Some(Literal::False)
-                    }
-                }
-                TokenType::Less => {
-                    if l < r {
-                        Some(Literal::True)
-                    } else {
-                        Some(Literal::False)
-                    }
-                }
-                TokenType::LessEqual => {
-                    if l <= r {
-                        Some(Literal::True)
-                    } else {
-                        Some(Literal::False)
-                    }
-                }
-                _ => None,
+            (Value::Number(l), Value::Number(r)) => match expr.operator.token_type {
+                TokenType::Minus => Ok(Value::Number(l - r)),
+                TokenType::Slash => Ok(Value::Number(l / r)),
+                TokenType::Star => Ok(Value::Number(l * r)),
+                TokenType::Plus => Ok(Value::Number(l + r)),
+                TokenType::Greater => Ok(Value::Bool(l.gt(&r))),
+                TokenType::GreaterEqual => Ok(Value::Bool(l.ge(&r))),
+                TokenType::Less => Ok(Value::Bool(l.lt(&r))),
+                TokenType::LessEqual => Ok(Value::Bool(l.le(&r))),
+                _ => Err(RloxError::InterpreterError),
             },
-            (Literal::Str(l), Literal::Str(r)) => match expr.operator.token_type {
-                TokenType::Plus => Some(Literal::Str(l + &r)),
-                _ => None,
+            (Value::Str(l), Value::Str(r)) => match expr.operator.token_type {
+                TokenType::Plus => Ok(Value::Str(l + &r)),
+                _ => Err(RloxError::InterpreterError),
             },
             (left, right) => match expr.operator.token_type {
                 TokenType::BangEqual => self.is_equal(left, right),
                 TokenType::EqualEqual => self.is_equal(left, right),
-                _ => None,
+                _ => Err(RloxError::InterpreterError),
             },
         }
     }
 
-    fn visit_grouping_expr(&self, expr: &GroupingExpr) -> Option<Literal> {
+    fn visit_grouping_expr(&self, expr: &GroupingExpr) -> Result<Value, RloxError> {
         self.evaluate(*expr.expression.clone())
     }
 
-    fn visit_literal_expr(&self, expr: &LiteralExpr) -> Option<Literal> {
-        expr.value.clone()
+    fn visit_literal_expr(&self, expr: &LiteralExpr) -> Result<Value, RloxError> {
+        let expr = expr.value.clone().expect("Valid literal expression");
+        Ok(match expr {
+            Literal::Identifier(i) => Value::Str(i),
+            Literal::Str(s) => Value::Str(s),
+            Literal::Number(n) => Value::Number(n),
+            Literal::True => Value::Bool(true),
+            Literal::False => Value::Bool(false),
+            Literal::Nil => Value::Nil,
+        })
     }
 
-    fn visit_unary_expr(&self, expr: &UnaryExpr) -> Option<Literal> {
+    fn visit_unary_expr(&self, expr: &UnaryExpr) -> Result<Value, RloxError> {
         let right = self.evaluate(*expr.right.clone())?;
         match expr.operator.token_type {
             TokenType::Minus => match right {
-                Literal::Number(n) => Some(Literal::Number(-n)),
-                _ => None,
+                Value::Number(n) => Ok(Value::Number(-n)),
+                _ => Err(RloxError::InterpreterError),
             },
-            TokenType::Bang => match !self.is_truthy(right) {
-                true => Some(Literal::True),
-                false => Some(Literal::False),
-            },
-            _ => None,
+            TokenType::Bang => Ok(Value::Bool(!self.is_truthy(right))),
+            _ => Err(RloxError::InterpreterError),
         }
     }
 }
 
 impl Interpreter {
     pub fn interpret(&self, expr: Expr) {
-        if let Some(value) = self.evaluate(expr) {
-            println!("{}",self.stringify(value))
+        if let Ok(value) = self.evaluate(expr) {
+            println!("{}", self.stringify(value))
         }
     }
-    fn evaluate(&self, expr: Expr) -> Option<Literal> {
+    fn evaluate(&self, expr: Expr) -> Result<Value, RloxError> {
         expr.accept(self)
     }
 
     // anything except null and false is true
-    fn is_truthy(&self, right: Literal) -> bool {
+    fn is_truthy(&self, right: Value) -> bool {
         match right {
-            Literal::False | Literal::Nil => false,
+            Value::Bool(false) | Value::Nil => false,
             _ => true,
         }
     }
-    fn check_equality<T: PartialEq>(&self, left: &T, right: &T) -> Option<Literal> {
-        match left.eq(right) {
-            true => Some(Literal::True),
-            false => Some(Literal::False),
-        }
-    }
 
-    fn is_equal(&self, left: Literal, right: Literal) -> Option<Literal> {
+    fn is_equal(&self, left: Value, right: Value) -> Result<Value, RloxError> {
         match (left, right) {
-            (Literal::Identifier(l), Literal::Identifier(r)) => self.check_equality(&l, &r),
-            (Literal::Str(l), Literal::Str(r)) => self.check_equality(&l, &r),
-            (Literal::Number(l), Literal::Number(r)) => self.check_equality(&l, &r),
-            (Literal::True, Literal::True) => Some(Literal::True),
-            (Literal::False, Literal::False) => Some(Literal::True),
-            (Literal::Nil, Literal::Nil) => None,
-            _ => None,
+            (Value::Str(l), Value::Str(r)) => Ok(Value::Bool(l.eq(&r))),
+            (Value::Number(l), Value::Number(r)) => Ok(Value::Bool(l.eq(&r))),
+            (Value::Bool(l), Value::Bool(r)) => Ok(Value::Bool(l.eq(&r))),
+            (Value::Nil, Value::Nil) => Ok(Value::Bool(true)),
+            _ => Ok(Value::Bool(false)),
         }
     }
 
-    fn stringify(&self, value: Literal) -> String {
+    fn stringify(&self, value: Value) -> String {
         match value {
-            Literal::Identifier(i) => i,
-            Literal::Str(s) => s,
-            Literal::Number(n) => n.to_string(),
-            Literal::True => "true".to_string(),
-            Literal::False => "false".to_string(),
-            Literal::Nil => "nil".to_string(),
+            Value::Str(s) => s,
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Nil => "nil".to_string(),
         }
     }
 }
