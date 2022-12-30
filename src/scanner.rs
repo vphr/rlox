@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, thread::current};
 
 use crate::error::*;
 
@@ -105,21 +105,22 @@ impl Scanner {
                     self.add_token(TokenType::Greater, None)
                 }
             }
-            '/' if self.match_next_token('/') => {
-                while self.peek() != '\n' && !self.is_end() {
-                    self.advance();
-                };
-                Ok(())
+            '/' => {
+                if self.match_next_token('/') {
+                    while let ch = self.peek() {
+                        if ch != '\n' || ch != '\0' {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    Ok(())
+                } else {
+                    self.add_token(TokenType::Slash, None)
+                }
             }
-            '"' => {
-                self.string();
-                Ok(())
-            }
-            '0'..='9' => {
-                self.number();
-                Ok(())
-            }
-            '/' => self.add_token(TokenType::Slash, None),
+            '"' => self.string(),
+            '0'..='9' => self.number(),
             ' ' | '\r' | '\t' => Ok(()),
             '\n' => {
                 self.line += 1;
@@ -127,10 +128,12 @@ impl Scanner {
             }
             _ => {
                 if token.is_alphabetic() {
-                    self.identifier();
-                    Ok(())
+                    self.identifier()
                 } else {
-                    Err(RloxError::ParseError { character: token, message: "unhandled token {}".to_string() })
+                    Err(RloxError::ScanError {
+                        character: token,
+                        message: "unhandled token {}".to_string(),
+                    })
                 }
             }
         }
@@ -148,17 +151,16 @@ impl Scanner {
             literal,
             line: self.line,
         });
-        return Ok(())
+        return Ok(());
     }
     fn match_next_token(&mut self, match_token: char) -> bool {
-        if self.is_end() {
-            false;
+        match self.source.get(self.current) {
+            Some(ch) if *ch as char == match_token => {
+                self.current += 1;
+                true
+            }
+            _ => false,
         }
-        if self.source.get(self.current).unwrap().to_owned() != match_token as u8 {
-            false;
-        }
-        self.current = self.current + 1;
-        true
     }
 
     fn peek(&self) -> char {
@@ -167,7 +169,7 @@ impl Scanner {
         }
         char::from(self.source[self.current])
     }
-    fn string(&mut self) {
+    fn string(&mut self) -> Result<(), RloxError> {
         while self.peek() != '"' && !self.is_end() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -175,16 +177,27 @@ impl Scanner {
             self.advance();
         }
         if self.is_end() {
-            unimplemented!("unhandled: unterminated string");
+            return Err(RloxError::ScanError {
+                character: self.source[self.current] as char,
+                message: "unhandled: unterminated string".to_string(),
+            });
         }
 
         self.advance();
         let value = self.source[self.start + 1..self.current - 1].to_owned();
-        let string_value = String::from_utf8(value).map(|v| Literal::Str(v)).unwrap();
-        self.add_token(TokenType::String, Some(string_value));
+        let string_literal: &str = &String::from_utf8(value)
+            .expect("should be a valid string passed.")
+            .to_lowercase();
+        let (token_type, literal) = match string_literal {
+            "true" => (TokenType::True, Some(Literal::True)),
+            "false" => (TokenType::False, Some(Literal::False)),
+            "null" => (TokenType::Nil, Some(Literal::Nil)),
+            v => (TokenType::String, Some(Literal::Str(v.to_owned()))),
+        };
+        self.add_token(token_type, literal)
     }
 
-    fn number(&mut self) {
+    fn number(&mut self) -> Result<(), RloxError> {
         while self.peek().is_ascii_digit() {
             self.advance();
         }
@@ -196,7 +209,7 @@ impl Scanner {
         }
         let value = self.source[self.start..self.current].to_owned();
         let number_value: f64 = String::from_utf8(value).unwrap().parse().unwrap();
-        self.add_token(TokenType::Number, Some(Literal::Number(number_value)));
+        self.add_token(TokenType::Number, Some(Literal::Number(number_value)))
     }
 
     fn peek_next(&self) -> char {
@@ -206,7 +219,7 @@ impl Scanner {
         char::from(self.source[self.current + 1])
     }
 
-    fn identifier(&mut self) {
+    fn identifier(&mut self) -> Result<(), RloxError> {
         while self.peek().is_ascii_alphanumeric() {
             self.advance();
         }
@@ -218,7 +231,7 @@ impl Scanner {
                 TokenType::Identifier,
                 Some(Literal::Identifier(string_value)),
             ),
-        };
+        }
     }
 }
 
@@ -282,6 +295,9 @@ pub enum Literal {
     Identifier(String),
     Str(String),
     Number(f64),
+    True,
+    False,
+    Nil,
 }
 
 #[derive(Debug, Clone)]

@@ -2,14 +2,18 @@ use crate::scanner::*;
 
 #[derive(Debug)]
 pub enum RloxError {
-    ParseError { character: char, message: String },
+    ScanError { character: char, message: String },
+    ParseError { current: usize, token: Token, message: String},
 }
 
 impl RloxError {
-    fn report(&self) {
+    pub fn report(&self) -> String {
         match &self {
-            RloxError::ParseError { character, message } => {
-                eprintln!("[line {}] Error {}", character, message)
+            RloxError::ScanError { character, message } => {
+               format!("[line {}] Error {}", character, message)
+            }
+            RloxError::ParseError {current, token, message} => {
+                format!("[position {}] Error {} lexeme {:?}",current,message, token.lexeme )
             }
         }
     }

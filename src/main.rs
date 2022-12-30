@@ -1,18 +1,19 @@
 mod ast_printer;
-mod expr;
-mod scanner;
-mod parser;
 mod error;
+mod expr;
+mod parser;
+mod scanner;
+mod interpreter;
 
+use error::RloxError;
 use std::{
     env::args,
     fs::read_to_string,
-    io::{stdin, stdout, Write},
+    io::{stdin, stdout, Error, Write},
     process::exit,
 };
-use error::RloxError;
 
-use crate::{parser::*, ast_printer::AstPrinter};
+use crate::{ast_printer::AstPrinter, parser::*};
 
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = args().collect();
@@ -28,11 +29,9 @@ fn main() -> std::io::Result<()> {
 
 fn run_file(path: &str) -> std::io::Result<()> {
     let file = read_to_string(path)?;
-    println!("{:#?}", file);
     run(&file);
     Ok(())
 }
-
 fn run_prompt() -> std::io::Result<()> {
     Ok(loop {
         print!("> ");
@@ -48,37 +47,13 @@ fn run_prompt() -> std::io::Result<()> {
 
 fn run(source: &str) -> Result<(), RloxError> {
     let scanner = scanner::Scanner::default().scan_tokens(source.to_string())?;
-    let mut parser = Parser{ tokens: scanner.to_vec(), current: 0 };
-    // println!("{:#?}", scanner);
-    let expr = parser.parse();
-    // println!("{:#?}", expr);
+    let mut parser = Parser {
+        tokens: scanner.to_vec(),
+        current: 0,
+    };
+    let expr = parser.parse()?;
 
-    println!("{:#?}", AstPrinter{}.print(&expr));
-
-    // let expression = Expr::Binary(BinaryExpr {
-    //     left: Box::new(Expr::Unary(UnaryExpr {
-    //         operator: Token {
-    //             token_type: scanner::TokenType::Minus,
-    //             lexeme: "-".as_bytes().to_vec(),
-    //             literal: None,
-    //             line: 1,
-    //         },
-    //         right: Box::new(Expr::Literal(LiteralExpr {
-    //             value: Some(scanner::Literal::Number(123.0)),
-    //         })),
-    //     })),
-    //     operator: Token {
-    //         token_type: scanner::TokenType::Star,
-    //         lexeme: "*".as_bytes().to_vec(),
-    //         literal: None,
-    //         line: 1,
-    //     },
-    //     right: Box::new(Expr::Grouping(GroupingExpr {
-    //         expression: Box::new(Expr::Literal(LiteralExpr {
-    //             value: Some(scanner::Literal::Number(45.67)),
-    //         })),
-    //     })),
-    // });
-    // println!("{:#?}", AstPrinter{}.print(&expression));
+    let interpreter = interpreter::Interpreter{};
+    interpreter.interpret(expr);
     Ok(())
 }

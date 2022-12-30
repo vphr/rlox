@@ -1,4 +1,4 @@
-use crate::expr;
+use crate::error::*;
 use crate::expr::*;
 use crate::scanner::*;
 
@@ -9,26 +9,26 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn parse(&mut self) -> Expr {
+    pub fn parse(&mut self) -> Result<Expr, RloxError> {
         self.expression()
     }
-    fn expression(&mut self) -> Expr {
+    fn expression(&mut self) -> Result<Expr, RloxError> {
         self.equality()
     }
 
-    fn equality(&mut self) -> Expr {
-        let mut expr = self.comparison();
+    fn equality(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.comparison()?;
 
         while self.match_token(vec![TokenType::BangEqual, TokenType::EqualEqual]) {
             let operator: Token = self.previous();
-            let right: Expr = self.comparison();
+            let right: Expr = self.comparison()?;
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
             })
         }
-        expr
+        Ok(expr)
     }
 
     fn match_token(&mut self, token_type: Vec<TokenType>) -> bool {
@@ -41,8 +41,8 @@ impl Parser {
         false
     }
 
-    fn comparison(&mut self) -> Expr {
-        let mut expr = self.term();
+    fn comparison(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.term()?;
         while self.match_token(vec![
             TokenType::Greater,
             TokenType::GreaterEqual,
@@ -50,14 +50,14 @@ impl Parser {
             TokenType::LessEqual,
         ]) {
             let operator = self.previous();
-            let right = self.term();
+            let right = self.term()?;
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
             })
         }
-        expr
+        Ok(expr)
     }
 
     fn previous(&mut self) -> Token {
@@ -85,60 +85,60 @@ impl Parser {
         self.tokens[self.current].clone()
     }
 
-    fn term(&mut self) -> Expr {
-        let mut expr = self.factor();
+    fn term(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.factor()?;
         while self.match_token(vec![TokenType::Minus, TokenType::Plus]) {
             let operator = self.previous();
-            let right = self.factor();
+            let right = self.factor()?;
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
             })
         }
-        expr
+        Ok(expr)
     }
 
-    fn factor(&mut self) -> Expr {
-        let mut expr = self.unary();
+    fn factor(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.unary()?;
         while self.match_token(vec![TokenType::Slash, TokenType::Star]) {
             let operator = self.previous();
-            let right = self.unary();
+            let right = self.unary()?;
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
             })
         }
-        expr
+        Ok(expr)
     }
 
-    fn unary(&mut self) -> Expr {
+    fn unary(&mut self) -> Result<Expr, RloxError> {
         if self.match_token(vec![TokenType::Bang, TokenType::Minus]) {
             let operator = self.previous();
-            let right = self.unary();
+            let right = self.unary()?;
             Expr::Unary(UnaryExpr {
                 operator,
                 right: Box::new(right),
             });
         }
-        self.primary().unwrap()
+        self.primary()
     }
 
-    fn primary(&mut self) -> Result<expr::Expr, String> {
+    fn primary(&mut self) -> Result<Expr, RloxError> {
         if self.match_token(vec![TokenType::False]) {
             return Ok(Expr::Literal(LiteralExpr {
-                value: Some(Literal::Str("false".to_string())),
+                value: Some(Literal::False),
             }));
         }
         if self.match_token(vec![TokenType::True]) {
             return Ok(Expr::Literal(LiteralExpr {
-                value: Some(Literal::Str("true".to_string())),
+                value: Some(Literal::True),
             }));
         }
         if self.match_token(vec![TokenType::Nil]) {
             return Ok(Expr::Literal(LiteralExpr {
-                value: Some(Literal::Str("null".to_string())),
+                value: Some(Literal::Nil),
             }));
         }
         if self.match_token(vec![TokenType::Number, TokenType::String]) {
@@ -147,7 +147,7 @@ impl Parser {
             }));
         }
         if self.match_token(vec![TokenType::LeftParen]) {
-            let expr = self.expression();
+            let expr = self.expression()?;
             self.consume(TokenType::RightParen)?;
             return Ok(Expr::Grouping(GroupingExpr {
                 expression: Box::new(expr),
@@ -158,13 +158,21 @@ impl Parser {
                 value: self.previous().literal,
             }));
         }
-        Err("Expected expression".to_string())
+        Err(RloxError::ParseError {
+            token: self.tokens[self.current].clone(),
+            current: self.current,
+            message: "failed to parse".to_string(),
+        })
     }
-    fn consume(&mut self, token: TokenType) -> Result<Token, String> {
+    fn consume(&mut self, token: TokenType) -> Result<Token, RloxError> {
         if self.check(token) {
             return Ok(self.advance());
         }
-        Err("Expect ')' after expression.".to_string())
+        Err(RloxError::ParseError {
+            token: self.tokens[self.current].clone(),
+            current: self.current,
+            message: "Expect ')' after expression.".to_string(),
+        })
     }
     fn synchronize(&mut self) {
         self.advance();

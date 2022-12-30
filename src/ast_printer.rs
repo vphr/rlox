@@ -20,6 +20,9 @@ impl ExprVisitor<String> for AstPrinter {
                 crate::scanner::Literal::Identifier(val) => val.to_string(),
                 crate::scanner::Literal::Str(val) => val.to_string(),
                 crate::scanner::Literal::Number(val) => val.to_string(),
+                crate::scanner::Literal::True => "true".to_string(),
+                crate::scanner::Literal::False => "false".to_string(),
+                crate::scanner::Literal::Nil => "nil".to_string()
             }
         } else {
             "nil".to_string()
