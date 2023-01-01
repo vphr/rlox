@@ -25,6 +25,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
             "Grouping   : Box<Expr> expression",
             "Literal    : Option<Literal> value",
             "Unary      : Token operator, Box<Expr> right",
+            "Variable   : Token name",
         ],
     )?;
     define_ast(
@@ -33,6 +34,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
         vec![
             "Expression : Box<crate::expr::Expr> expression",
             "Print      : Box<crate::expr::Expr> expression",
+            "Var        : Token name, Option<Box<crate::expr::Expr>> initializer",
         ],
     )?;
     Ok(())
@@ -67,7 +69,9 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
     write!(file, "impl {} {{\n", filename)?;
     write!(
         file,
-        "\tpub fn accept<T>(&self, {}_visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n", filename.to_lowercase(), filename
+        "\tpub fn accept<T>(&self, {}_visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
+        filename.to_lowercase(),
+        filename
     )?;
     write!(file, "\t\tmatch self {{\n")?;
     for t in &tree_types {
@@ -111,7 +115,8 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
         write!(file, "impl {} {{\n", t.class_name)?;
         write!(
             file,
-            "\tfn accept<T>(&self, visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",filename
+            "\tfn accept<T>(&self, visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
+            filename
         )?;
         write!(
             file,

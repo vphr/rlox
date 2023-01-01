@@ -36,6 +36,10 @@ impl ExprVisitor<String> for AstPrinter {
             vec![expr.right.as_ref()],
         )
     }
+
+    fn visit_variable_expr(&self, variable: &VariableExpr) -> Result<String, RloxError> {
+        todo!()
+    }
 }
 impl AstPrinter {
     pub fn print(&self, expr: &Expr) -> Result<String,RloxError> {

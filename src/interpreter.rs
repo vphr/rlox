@@ -1,9 +1,16 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use crate::environment::*;
 use crate::error::RloxError;
 use crate::expr::*;
 use crate::scanner::*;
 use crate::stmt::*;
 
-pub struct Interpreter {}
+pub struct Interpreter {
+    environment: RefCell<Environment>,
+}
+#[derive(Debug, Clone)]
 pub enum Value {
     Str(String),
     Number(f64),
@@ -66,6 +73,10 @@ impl ExprVisitor<Value> for Interpreter {
             _ => Err(RloxError::InterpreterError),
         }
     }
+
+    fn visit_variable_expr(&self, variable: &VariableExpr) -> Result<Value, RloxError> {
+        self.environment.borrow().get(&variable.name)
+    }
 }
 
 impl StmtVisitor<()> for Interpreter {
@@ -79,17 +90,31 @@ impl StmtVisitor<()> for Interpreter {
     fn visit_print_stmt(&self, print: &PrintStmt) -> Result<(), RloxError> {
         let e = print.expression.as_ref();
         let ee = e.clone();
-        if let Ok(value) = self.evaluate(ee) {
-            println!("{}", self.stringify(value))
-        }
+        let value = self.evaluate(ee)?;
+        println!("{}", self.stringify(value));
+        Ok(())
+    }
+
+    fn visit_var_stmt(&self, var: &VarStmt) -> Result<(), RloxError> {
+        let value = match &var.initializer {
+            Some(val) => self.evaluate(*val.clone())?,
+            None => Value::Nil,
+        };
+        self.environment
+            .borrow_mut()
+            .define(&var.name.lexeme, value);
         Ok(())
     }
 }
 
 impl Interpreter {
-    pub fn interpret(&self, statements: Vec<Stmt>) -> Result<(),RloxError> {
-
-        for statement in statements{
+    pub fn new() -> Self {
+        Self {
+            environment: RefCell::new(Environment::new()),
+        }
+    }
+    pub fn interpret(&self, statements: Vec<Stmt>) -> Result<(), RloxError> {
+        for statement in statements {
             self.execute(statement)?
         }
         Ok(())
@@ -125,7 +150,7 @@ impl Interpreter {
         }
     }
 
-    fn execute(&self, statement: Stmt) -> Result<(),RloxError> {
+    fn execute(&self, statement: Stmt) -> Result<(), RloxError> {
         statement.accept(self)
     }
 }

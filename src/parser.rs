@@ -13,7 +13,7 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Vec<Stmt>, RloxError> {
         let mut statements: Vec<Stmt> = vec![];
         while !self.is_end() {
-            statements.push(self.statement()?)
+            statements.push(self.declaration()?)
         }
         Ok(statements)
     }
@@ -151,6 +151,11 @@ impl Parser {
                 value: self.previous().literal,
             }));
         }
+        if self.match_token(vec![TokenType::Identifier]) {
+            return Ok(Expr::Variable(VariableExpr {
+                name: self.previous(),
+            }));
+        }
         if self.match_token(vec![TokenType::LeftParen]) {
             let expr = self.expression()?;
             self.consume(
@@ -228,5 +233,31 @@ impl Parser {
         return Ok(Stmt::Expression(ExpressionStmt {
             expression: Box::new(value),
         }));
+    }
+
+    fn declaration(&mut self) -> Result<Stmt, RloxError> {
+        let res = if self.match_token(vec![TokenType::Var]) {
+            self.var_declaration()
+        } else {
+            self.statement()
+        };
+        if res.is_err() {
+            self.synchronize();
+        }
+        res
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, RloxError> {
+        let name = self.consume(TokenType::Identifier, "expect variable name".to_string())?;
+        let initializer = if self.match_token(vec![TokenType::Equal]) {
+            let res = self.expression()?;
+            Some(Box::new(res))
+        } else {
+            None
+        };
+
+        self.consume(TokenType::Semicolon, "Expect ';' after value.".to_string())?;
+
+        Ok(Stmt::Var(VarStmt { name, initializer }))
     }
 }

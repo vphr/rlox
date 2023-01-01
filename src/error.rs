@@ -5,6 +5,7 @@ pub enum RloxError {
     ScanError { character: char, message: String },
     UnterminatedStringError { token: String, message: String },
     ParseError { current: usize, token: Token, message: String},
+    RuntimeError { lexeme: String, message: String},
     InterpreterError,
 }
 
@@ -21,6 +22,9 @@ impl RloxError {
             RloxError::UnterminatedStringError { token, message } => {
                eprintln!("[line {}] Error {}", token, message)
             }
+            RloxError::RuntimeError { lexeme, message } =>
+               eprintln!("[token {}] Error {}", lexeme, message)
+
         }
     }
 }
