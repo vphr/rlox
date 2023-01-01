@@ -1,6 +1,7 @@
 use crate::error::RloxError;
 use crate::expr::*;
 use crate::scanner::*;
+use crate::stmt::*;
 
 pub struct Interpreter {}
 pub enum Value {
@@ -67,11 +68,31 @@ impl ExprVisitor<Value> for Interpreter {
     }
 }
 
-impl Interpreter {
-    pub fn interpret(&self, expr: Expr) {
-        if let Ok(value) = self.evaluate(expr) {
+impl StmtVisitor<()> for Interpreter {
+    fn visit_expression_stmt(&self, expression: &ExpressionStmt) -> Result<(), RloxError> {
+        let e = expression.expression.as_ref();
+        let ee = e.clone();
+        self.evaluate(ee)?;
+        Ok(())
+    }
+
+    fn visit_print_stmt(&self, print: &PrintStmt) -> Result<(), RloxError> {
+        let e = print.expression.as_ref();
+        let ee = e.clone();
+        if let Ok(value) = self.evaluate(ee) {
             println!("{}", self.stringify(value))
         }
+        Ok(())
+    }
+}
+
+impl Interpreter {
+    pub fn interpret(&self, statements: Vec<Stmt>) -> Result<(),RloxError> {
+
+        for statement in statements{
+            self.execute(statement)?
+        }
+        Ok(())
     }
     fn evaluate(&self, expr: Expr) -> Result<Value, RloxError> {
         expr.accept(self)
@@ -102,5 +123,9 @@ impl Interpreter {
             Value::Bool(b) => b.to_string(),
             Value::Nil => "nil".to_string(),
         }
+    }
+
+    fn execute(&self, statement: Stmt) -> Result<(),RloxError> {
+        statement.accept(self)
     }
 }

@@ -2,6 +2,7 @@ mod ast_printer;
 mod error;
 mod expr;
 mod parser;
+mod stmt;
 mod scanner;
 mod interpreter;
 
@@ -54,11 +55,10 @@ fn run(source: &str) -> Result<(), RloxError> {
         tokens: scanner.to_vec(),
         current: 0,
     };
-    println!("{:#?}", scanner);
-    let expr = parser.parse()?;
-    println!("{:#?}", expr);
+    // println!("{:#?}", scanner);
+    let statements = parser.parse()?;
+    // println!("{:#?}", statements);
 
     let interpreter = interpreter::Interpreter{};
-    interpreter.interpret(expr);
-    Ok(())
+    interpreter.interpret(statements)
 }

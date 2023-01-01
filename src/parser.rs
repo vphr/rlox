@@ -1,6 +1,7 @@
 use crate::error::*;
 use crate::expr::*;
 use crate::scanner::*;
+use crate::stmt::*;
 
 #[derive(Debug)]
 pub struct Parser {
@@ -9,8 +10,12 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn parse(&mut self) -> Result<Expr, RloxError> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, RloxError> {
+        let mut statements: Vec<Stmt> = vec![];
+        while !self.is_end() {
+            statements.push(self.statement()?)
+        }
+        Ok(statements)
     }
     fn expression(&mut self) -> Result<Expr, RloxError> {
         self.equality()
@@ -148,7 +153,10 @@ impl Parser {
         }
         if self.match_token(vec![TokenType::LeftParen]) {
             let expr = self.expression()?;
-            self.consume(TokenType::RightParen)?;
+            self.consume(
+                TokenType::RightParen,
+                "Expect ')' after expression.".to_string(),
+            )?;
             return Ok(Expr::Grouping(GroupingExpr {
                 expression: Box::new(expr),
             }));
@@ -164,14 +172,14 @@ impl Parser {
             message: "failed to parse".to_string(),
         })
     }
-    fn consume(&mut self, token: TokenType) -> Result<Token, RloxError> {
+    fn consume(&mut self, token: TokenType, message: String) -> Result<Token, RloxError> {
         if self.check(token) {
             return Ok(self.advance());
         }
         Err(RloxError::ParseError {
             token: self.tokens[self.current].clone(),
             current: self.current,
-            message: "Expect ')' after expression.".to_string(),
+            message,
         })
     }
     fn synchronize(&mut self) {
@@ -194,5 +202,31 @@ impl Parser {
             }
             self.advance();
         }
+    }
+
+    fn statement(&mut self) -> Result<Stmt, RloxError> {
+        if self.match_token(vec![TokenType::Print]) {
+            return self.print_statement();
+        }
+        self.expression_statement()
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, RloxError> {
+        let value = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after value.".to_string())?;
+        return Ok(Stmt::Print(PrintStmt {
+            expression: Box::new(value),
+        }));
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, RloxError> {
+        let value = self.expression()?;
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after expression.".to_string(),
+        )?;
+        return Ok(Stmt::Expression(ExpressionStmt {
+            expression: Box::new(value),
+        }));
     }
 }

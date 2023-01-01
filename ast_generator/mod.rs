@@ -21,10 +21,18 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
         &output_dir,
         "Expr",
         vec![
-            "Binary   : Box<Expr> left, Token operator, Box<Expr> right",
-            "Grouping : Box<Expr> expression",
-            "Literal  : Option<Literal> value",
-            "Unary    : Token operator, Box<Expr> right",
+            "Binary     : Box<Expr> left, Token operator, Box<Expr> right",
+            "Grouping   : Box<Expr> expression",
+            "Literal    : Option<Literal> value",
+            "Unary      : Token operator, Box<Expr> right",
+        ],
+    )?;
+    define_ast(
+        &output_dir,
+        "Stmt",
+        vec![
+            "Expression : Box<crate::expr::Expr> expression",
+            "Print      : Box<crate::expr::Expr> expression",
         ],
     )?;
     Ok(())
@@ -56,17 +64,21 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
     }
     write!(file, "}}\n\n")?;
 
-    write!(file, "impl Expr {{\n")?;
+    write!(file, "impl {} {{\n", filename)?;
     write!(
         file,
-        "\tpub fn accept<T>(&self, expr_visitor: &dyn ExprVisitor<T>) -> Result<T,RloxError> {{\n"
+        "\tpub fn accept<T>(&self, {}_visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n", filename.to_lowercase(), filename
     )?;
     write!(file, "\t\tmatch self {{\n")?;
     for t in &tree_types {
         write!(
             file,
-            "\t\t\t Expr::{}(exp) => exp.accept(expr_visitor),\n",
-            t.base_name
+            "\t\t\t {}::{}({}) => {}.accept({}_visitor),\n",
+            filename,
+            t.base_name,
+            filename.to_lowercase(),
+            filename.to_lowercase(),
+            filename.to_lowercase(),
         )?;
     }
     write!(file, "\t\t}}\n")?;
@@ -99,7 +111,7 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
         write!(file, "impl {} {{\n", t.class_name)?;
         write!(
             file,
-            "\tfn accept<T>(&self, visitor: &dyn ExprVisitor<T>) -> Result<T,RloxError> {{\n",
+            "\tfn accept<T>(&self, visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",filename
         )?;
         write!(
             file,
