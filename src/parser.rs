@@ -18,7 +18,8 @@ impl Parser {
         Ok(statements)
     }
     fn expression(&mut self) -> Result<Expr, RloxError> {
-        self.equality()
+        self.assignment()
+        // self.equality()
     }
 
     fn equality(&mut self) -> Result<Expr, RloxError> {
@@ -213,6 +214,11 @@ impl Parser {
         if self.match_token(vec![TokenType::Print]) {
             return self.print_statement();
         }
+        if self.match_token(vec![TokenType::LeftBrace]) {
+            return Ok(Stmt::Block(BlockStmt {
+                statements: self.block()?,
+            }));
+        }
         self.expression_statement()
     }
 
@@ -259,5 +265,40 @@ impl Parser {
         self.consume(TokenType::Semicolon, "Expect ';' after value.".to_string())?;
 
         Ok(Stmt::Var(VarStmt { name, initializer }))
+    }
+
+    fn assignment(&mut self) -> Result<Expr, RloxError> {
+        let expr = self.equality()?;
+
+        if self.match_token(vec![TokenType::Equal]) {
+            let equals = self.previous();
+            let value = self.assignment()?;
+
+            if let Expr::Variable(v) = expr {
+                return Ok(Expr::Assign(AssignExpr {
+                    name: v.name,
+                    value: Box::new(value),
+                }));
+            };
+
+            return Err(RloxError::ParseError {
+                current: self.current,
+                token: equals,
+                message: "Invalid assignment target.".to_string(),
+            });
+        }
+        Ok(expr)
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, RloxError> {
+        let mut statements: Vec<Stmt> = vec![];
+
+        while !self.check(TokenType::RightBrace) && !self.is_end() {
+            statements.push(self.declaration()?);
+        }
+
+        self.consume(TokenType::RightBrace, "Expect '}' after block.".to_string())?;
+
+        Ok(statements)
     }
 }

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::environment::*;
 use crate::error::RloxError;
@@ -77,6 +77,14 @@ impl ExprVisitor<Value> for Interpreter {
     fn visit_variable_expr(&self, variable: &VariableExpr) -> Result<Value, RloxError> {
         self.environment.borrow().get(&variable.name)
     }
+
+    fn visit_assign_expr(&self, assign: &AssignExpr) -> Result<Value, RloxError> {
+        let value = self.evaluate(*assign.value.clone())?;
+        self.environment
+            .borrow_mut()
+            .assign(&assign.name, value.clone())?;
+        Ok(value)
+    }
 }
 
 impl StmtVisitor<()> for Interpreter {
@@ -103,6 +111,11 @@ impl StmtVisitor<()> for Interpreter {
         self.environment
             .borrow_mut()
             .define(&var.name.lexeme, value);
+        Ok(())
+    }
+
+    fn visit_block_stmt(&self, block: &BlockStmt) -> Result<(), RloxError> {
+        self.execute_block(block, Environment::new_with_enclosing(self.environment.clone()))?;
         Ok(())
     }
 }
@@ -152,5 +165,15 @@ impl Interpreter {
 
     fn execute(&self, statement: Stmt) -> Result<(), RloxError> {
         statement.accept(self)
+    }
+
+    fn execute_block(&self, block: &BlockStmt, new_env: Environment) -> Result<(), RloxError> {
+        let mut previous = std::mem::replace(&mut *self.environment.borrow_mut(), new_env);
+
+        for statement in &block.statements {
+            self.execute(statement.clone())?;
+        }
+        std::mem::swap(&mut *self.environment.borrow_mut(), &mut previous);
+        Ok(())
     }
 }

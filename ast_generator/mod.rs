@@ -21,6 +21,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
         &output_dir,
         "Expr",
         vec![
+            "Assign     : Token name, Box<Expr> value",
             "Binary     : Box<Expr> left, Token operator, Box<Expr> right",
             "Grouping   : Box<Expr> expression",
             "Literal    : Option<Literal> value",
@@ -32,6 +33,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
         &output_dir,
         "Stmt",
         vec![
+            "Block      : Vec<Stmt> statements",
             "Expression : Box<crate::expr::Expr> expression",
             "Print      : Box<crate::expr::Expr> expression",
             "Var        : Token name, Option<Box<crate::expr::Expr>> initializer",
