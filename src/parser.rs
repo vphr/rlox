@@ -213,6 +213,9 @@ impl Parser {
         if self.match_token(vec![TokenType::If]) {
             return self.if_statement();
         }
+        if self.match_token(vec![TokenType::While]) {
+            return self.while_statement();
+        }
         if self.match_token(vec![TokenType::Print]) {
             return self.print_statement();
         }
@@ -349,5 +352,17 @@ impl Parser {
             })
         }
         Ok(expr)
+    }
+
+    fn while_statement(&self) -> Result<Stmt, RloxError> {
+        self.consume(TokenType::LeftParen, "Expect '(' after block.".to_string())?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after block.".to_string())?;
+        let body = self.statement()?;
+
+        Ok(Stmt::While(WhileStmt {
+            condition: Box::new(condition),
+            body: Box::new(body),
+        }))
     }
 }

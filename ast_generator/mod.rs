@@ -41,6 +41,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
             "If         : Box<Expr> condition, Box<Stmt> then_branch, Option<Box<Stmt>> else_branch",
             "Print      : Box<Expr> expression",
             "Var        : Token name, Option<Box<Expr>> initializer",
+            "While      : Box<Expr> condition, Box<Stmt> body"
         ],
     )?;
     Ok(())
@@ -112,7 +113,7 @@ fn define_ast(output_dir: &str, filename: &str,imports: Vec<&str>, types_vec: Ve
             "\t fn visit_{}_{}(&self, {}: &{}) -> Result<T, RloxError>;\n",
             base,
             filename.to_lowercase(),
-            "visitor",
+            filename.to_lowercase(),
             t.class_name
         )?;
     }

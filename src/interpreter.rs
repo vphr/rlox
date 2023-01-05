@@ -103,8 +103,8 @@ impl ExprVisitor<Value> for Interpreter {
 }
 
 impl StmtVisitor<()> for Interpreter {
-    fn visit_expression_stmt(&self, visitor: &ExpressionStmt) -> Result<(), RloxError> {
-        let e = visitor.expression.as_ref();
+    fn visit_expression_stmt(&self, stmt: &ExpressionStmt) -> Result<(), RloxError> {
+        let e = stmt.expression.as_ref();
         let ee = e.clone();
         self.evaluate(ee)?;
         Ok(())
@@ -118,32 +118,40 @@ impl StmtVisitor<()> for Interpreter {
         Ok(())
     }
 
-    fn visit_var_stmt(&self, visitor: &VarStmt) -> Result<(), RloxError> {
-        let value = match &visitor.initializer {
+    fn visit_var_stmt(&self, stmt: &VarStmt) -> Result<(), RloxError> {
+        let value = match &stmt.initializer {
             Some(val) => self.evaluate(*val.clone())?,
             None => Value::Nil,
         };
         self.environment
             .borrow_mut()
-            .define(&visitor.name.lexeme, value);
+            .define(&stmt.name.lexeme, value);
         Ok(())
     }
 
-    fn visit_block_stmt(&self, visitor: &BlockStmt) -> Result<(), RloxError> {
+    fn visit_block_stmt(&self, stmt: &BlockStmt) -> Result<(), RloxError> {
         self.execute_block(
-            visitor,
+            stmt,
             Environment::new_with_enclosing(self.environment.clone()),
         )?;
         Ok(())
     }
 
-    fn visit_if_stmt(&self, visitor: &IfStmt) -> Result<(), RloxError> {
-        if self.is_truthy(&self.evaluate(*visitor.condition.clone())?) {
-            self.execute(*visitor.then_branch.clone())?
-        } else if let Some(v) = &visitor.else_branch {
+    fn visit_if_stmt(&self, stmt: &IfStmt) -> Result<(), RloxError> {
+        if self.is_truthy(&self.evaluate(*stmt.condition.clone())?) {
+            self.execute(*stmt.then_branch.clone())?
+        } else if let Some(v) = &stmt.else_branch {
             return self.execute(*v.clone());
         }
         Ok(())
+    }
+
+    fn visit_while_stmt(&self, stmt: &WhileStmt) -> Result<(), RloxError> {
+        while self.is_truthy(&self.evaluate(*stmt.condition.clone())?){
+            self.execute(*stmt.body.clone())?;
+        }
+        Ok(())
+
     }
 }
 
