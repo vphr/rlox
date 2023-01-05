@@ -31,7 +31,12 @@ impl Rlox {
     }
     pub fn run_file(&self, path: &str) -> std::io::Result<()> {
         let file = read_to_string(path)?;
-        self.run(&file);
+        match self.run(&file) {
+            Ok(_) => {}
+            Err(e) => {
+                e.report();
+            }
+        }
         Ok(())
     }
 

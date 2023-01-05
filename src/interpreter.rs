@@ -7,6 +7,7 @@ use crate::expr::*;
 use crate::scanner::*;
 use crate::stmt::*;
 
+#[derive(Debug, Clone)]
 pub struct Interpreter {
     environment: RefCell<Environment>,
 }
@@ -115,7 +116,10 @@ impl StmtVisitor<()> for Interpreter {
     }
 
     fn visit_block_stmt(&self, block: &BlockStmt) -> Result<(), RloxError> {
-        self.execute_block(block, Environment::new_with_enclosing(self.environment.clone()))?;
+        self.execute_block(
+            block,
+            Environment::new_with_enclosing(self.environment.clone()),
+        )?;
         Ok(())
     }
 }
