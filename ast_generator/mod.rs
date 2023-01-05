@@ -20,11 +20,13 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
     define_ast(
         &output_dir,
         "Expr",
+        vec!["scanner", "error"],
         vec![
             "Assign     : Token name, Box<Expr> value",
             "Binary     : Box<Expr> left, Token operator, Box<Expr> right",
             "Grouping   : Box<Expr> expression",
             "Literal    : Option<Literal> value",
+            "Logical    : Box<Expr> left, Token operator, Box<Expr> right",
             "Unary      : Token operator, Box<Expr> right",
             "Variable   : Token name",
         ],
@@ -32,20 +34,25 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
     define_ast(
         &output_dir,
         "Stmt",
+        vec!["scanner", "error","expr"],
         vec![
             "Block      : Vec<Stmt> statements",
-            "Expression : Box<crate::expr::Expr> expression",
-            "Print      : Box<crate::expr::Expr> expression",
-            "Var        : Token name, Option<Box<crate::expr::Expr>> initializer",
+            "Expression : Box<Expr> expression",
+            "If         : Box<Expr> condition, Box<Stmt> then_branch, Option<Box<Stmt>> else_branch",
+            "Print      : Box<Expr> expression",
+            "Var        : Token name, Option<Box<Expr>> initializer",
         ],
     )?;
     Ok(())
 }
-fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io::Result<()> {
+fn define_ast(output_dir: &str, filename: &str,imports: Vec<&str>, types_vec: Vec<&str>) -> std::io::Result<()> {
     let path = format!("{}/{}.rs", output_dir, filename.to_lowercase());
     let mut file = File::create(path)?;
     let mut tree_types: Vec<TreeType> = Vec::new();
-    write!(file, "{}", "use crate::{scanner::*, error::RloxError};\n")?;
+    for import in imports{
+    write!(file, "use crate::{}::*;\n", import)?;
+    }
+    write!(file, "\n\n")?;
     for types in types_vec {
         let (base_name, fields) = types
             .split_once(":")
@@ -79,11 +86,9 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
     for t in &tree_types {
         write!(
             file,
-            "\t\t\t {}::{}({}) => {}.accept({}_visitor),\n",
+            "\t\t\t {}::{}(expr) => expr.accept({}_visitor),\n",
             filename,
             t.base_name,
-            filename.to_lowercase(),
-            filename.to_lowercase(),
             filename.to_lowercase(),
         )?;
     }
@@ -107,7 +112,7 @@ fn define_ast(output_dir: &str, filename: &str, types_vec: Vec<&str>) -> std::io
             "\t fn visit_{}_{}(&self, {}: &{}) -> Result<T, RloxError>;\n",
             base,
             filename.to_lowercase(),
-            base,
+            "visitor",
             t.class_name
         )?;
     }

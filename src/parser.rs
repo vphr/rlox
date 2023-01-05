@@ -19,7 +19,6 @@ impl Parser {
     }
     fn expression(&mut self) -> Result<Expr, RloxError> {
         self.assignment()
-        // self.equality()
     }
 
     fn equality(&mut self) -> Result<Expr, RloxError> {
@@ -211,6 +210,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, RloxError> {
+        if self.match_token(vec![TokenType::If]) {
+            return self.if_statement();
+        }
         if self.match_token(vec![TokenType::Print]) {
             return self.print_statement();
         }
@@ -268,7 +270,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<Expr, RloxError> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if self.match_token(vec![TokenType::Equal]) {
             let equals = self.previous();
@@ -300,5 +302,52 @@ impl Parser {
         self.consume(TokenType::RightBrace, "Expect '}' after block.".to_string())?;
 
         Ok(statements)
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, RloxError> {
+        self.consume(TokenType::LeftParen, "Expect '(' after block.".to_string())?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after block.".to_string())?;
+
+        let then_branch = self.statement()?;
+        let else_branch: Option<Box<Stmt>> = if self.match_token(vec![TokenType::Else]) {
+            let inner_statement = self.statement()?;
+            Some(Box::new(inner_statement))
+        } else {
+            None
+        };
+        Ok(Stmt::If(IfStmt {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch,
+        }))
+    }
+
+    fn or(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.and()?;
+        while self.match_token(vec![TokenType::Or]) {
+            let operator = self.previous();
+            let right = self.and()?;
+            expr = Expr::Logical(LogicalExpr {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            })
+        }
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.equality()?;
+        while self.match_token(vec![TokenType::And]) {
+            let operator = self.previous();
+            let right = self.equality()?;
+            expr = Expr::Logical(LogicalExpr {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            })
+        }
+        Ok(expr)
     }
 }
