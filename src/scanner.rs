@@ -1,4 +1,4 @@
-use std::{collections::HashMap, thread::current};
+use std::collections::HashMap;
 
 use crate::error::*;
 

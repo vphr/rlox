@@ -127,7 +127,7 @@ impl Parser {
                 right: Box::new(right),
             });
         }
-        self.primary()
+        self.call()
     }
 
     fn primary(&mut self) -> Result<Expr, RloxError> {
@@ -362,12 +362,8 @@ impl Parser {
         let condition = Box::new(self.expression()?);
         self.consume(TokenType::RightParen, "Expect ')' after block.".to_string())?;
         let body = Box::new(self.statement()?);
-        dbg!(&body);
 
-        Ok(Stmt::While(WhileStmt {
-            condition,
-            body
-        }))
+        Ok(Stmt::While(WhileStmt { condition, body }))
     }
 
     fn for_statement(&mut self) -> Result<Stmt, RloxError> {
@@ -429,5 +425,48 @@ impl Parser {
             })
         };
         Ok(body)
+    }
+
+    fn call(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.primary()?;
+
+        loop {
+            match self.match_token(vec![TokenType::LeftParen]) {
+                true => expr = self.finish_call(expr)?,
+                false => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, expr: Expr) -> Result<Expr, RloxError> {
+        let mut arguments: Vec<Box<Expr>> = vec![];
+
+        if !self.check(TokenType::RightParen) {
+            loop {
+                if arguments.len() >= 255 {
+                    return Err(RloxError::ParseError {
+                        current: self.current,
+                        token: self.peek(),
+                        message: "Can't have more than 255 arguments.".to_string(),
+                    });
+                }
+                arguments.push(Box::new(self.expression()?));
+                if self.match_token(vec![TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+
+        let paren = self.consume(
+            TokenType::RightParen,
+            "Expected ')' after arguments".to_string(),
+        )?;
+
+        Ok(Expr::Call(CallExpr {
+            callee: Box::new(expr),
+            paren,
+            arguments,
+        }))
     }
 }

@@ -1,4 +1,7 @@
 use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use crate::environment::*;
 use crate::error::RloxError;
@@ -8,6 +11,7 @@ use crate::stmt::*;
 
 #[derive(Debug, Clone)]
 pub struct Interpreter {
+    globals: RefCell<Environment>,
     environment: RefCell<Environment>,
 }
 #[derive(Debug, Clone)]
@@ -15,7 +19,36 @@ pub enum Value {
     Str(String),
     Number(f64),
     Bool(bool),
+    Func(Callable),
     Nil,
+}
+
+#[derive(Clone)]
+pub struct Callable {
+    pub func: Rc<dyn RloxCallable>,
+    pub arity: usize,
+}
+
+impl std::fmt::Debug for Callable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<callable>")
+    }
+}
+
+pub trait RloxCallable {
+    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, RloxError>;
+    fn arity(&self) -> usize;
+}
+
+impl RloxCallable for Callable {
+    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, RloxError> {
+        self.func.call(interpreter, args)
+    }
+
+    fn arity(&self) -> usize {
+        print!("{}", self.arity);
+        self.arity
+    }
 }
 
 impl ExprVisitor<Value> for Interpreter {
@@ -102,6 +135,26 @@ impl ExprVisitor<Value> for Interpreter {
         }
         self.evaluate(*visitor.right.clone())
     }
+
+    fn visit_call_expr(&self, expr: &CallExpr) -> Result<Value, RloxError> {
+        let callee = self.evaluate(*expr.callee.clone())?;
+
+        let mut arguments: Vec<Value> = vec![];
+
+        for args in &expr.arguments {
+            arguments.push(self.evaluate(*args.clone())?);
+        }
+
+        if let Value::Func(function) = callee {
+            if !arguments.len().eq(&function.arity) {
+                return Err(RloxError::InterpreterError);
+            }
+            return function.func.call(self, &arguments);
+        } else {
+            return Err(RloxError::InterpreterError);
+        }
+        // let function =
+    }
 }
 
 impl StmtVisitor<()> for Interpreter {
@@ -149,22 +202,43 @@ impl StmtVisitor<()> for Interpreter {
     }
 
     fn visit_while_stmt(&self, stmt: &WhileStmt) -> Result<(), RloxError> {
+        // dbg!(&self.environment.as_ref().borrow().enclosing);
         while self.is_truthy(self.evaluate(*stmt.condition.clone())?) {
-            // match self.execute(stmt.body.clone()) {
-            //     Err(LoxResult::Break) => break,
-            //     Err(e) => return Err(e),
-            //     Ok(_) => {}
-            // }
             self.execute(*stmt.body.clone())?;
         }
         Ok(())
     }
 }
 
+pub struct NativeClock;
+impl RloxCallable for NativeClock {
+    fn call(&self, interpreter: &Interpreter, args: &[Value]) -> Result<Value, RloxError> {
+        let start = SystemTime::now();
+        let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap();
+
+        Ok(Value::Number(since_the_epoch.as_millis() as f64))
+    }
+
+    fn arity(&self) -> usize {
+        0
+    }
+}
 impl Interpreter {
     pub fn new() -> Self {
+        let globals = RefCell::new(Environment::new());
+        let name = "clock".as_bytes();
+        globals.borrow_mut().define(
+            &name.to_vec(),
+            Value::Func(Callable {
+                func: Rc::new(NativeClock {}),
+                arity: 0,
+            }),
+        );
+
+        let environment = globals.clone();
         Self {
-            environment: RefCell::new(Environment::new()),
+            globals,
+            environment,
         }
     }
     pub fn interpret(&self, statements: Vec<Stmt>) -> Result<(), RloxError> {
@@ -201,6 +275,7 @@ impl Interpreter {
             Value::Number(n) => n.to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Nil => "nil".to_string(),
+            Value::Func(_) => "<func>".to_string(),
         }
     }
 

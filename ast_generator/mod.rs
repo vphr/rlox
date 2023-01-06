@@ -24,6 +24,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
         vec![
             "Assign     : Token name, Box<Expr> value",
             "Binary     : Box<Expr> left, Token operator, Box<Expr> right",
+            "Call       : Box<Expr> callee, Token paren, Vec<Box<Expr>> arguments",
             "Grouping   : Box<Expr> expression",
             "Literal    : Option<Literal> value",
             "Logical    : Box<Expr> left, Token operator, Box<Expr> right",
@@ -46,12 +47,17 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
     )?;
     Ok(())
 }
-fn define_ast(output_dir: &str, filename: &str,imports: Vec<&str>, types_vec: Vec<&str>) -> std::io::Result<()> {
+fn define_ast(
+    output_dir: &str,
+    filename: &str,
+    imports: Vec<&str>,
+    types_vec: Vec<&str>,
+) -> std::io::Result<()> {
     let path = format!("{}/{}.rs", output_dir, filename.to_lowercase());
     let mut file = File::create(path)?;
     let mut tree_types: Vec<TreeType> = Vec::new();
-    for import in imports{
-    write!(file, "use crate::{}::*;\n", import)?;
+    for import in imports {
+        write!(file, "use crate::{}::*;\n", import)?;
     }
     write!(file, "\n\n")?;
     for types in types_vec {
