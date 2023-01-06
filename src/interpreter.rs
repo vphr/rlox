@@ -32,6 +32,8 @@ impl ExprVisitor<Value> for Interpreter {
                 TokenType::GreaterEqual => Ok(Value::Bool(l.ge(&r))),
                 TokenType::Less => Ok(Value::Bool(l.lt(&r))),
                 TokenType::LessEqual => Ok(Value::Bool(l.le(&r))),
+                TokenType::EqualEqual => Ok(Value::Bool(l.eq(&r))),
+                TokenType::BangEqual => Ok(Value::Bool(l.eq(&r))),
                 _ => Err(RloxError::InterpreterError),
             },
             (Value::Str(l), Value::Str(r)) => match expr.operator.token_type {
@@ -39,8 +41,8 @@ impl ExprVisitor<Value> for Interpreter {
                 _ => Err(RloxError::InterpreterError),
             },
             (left, right) => match expr.operator.token_type {
-                TokenType::BangEqual => self.is_equal(left, right),
                 TokenType::EqualEqual => self.is_equal(left, right),
+                TokenType::BangEqual => self.is_equal(left, right),
                 _ => Err(RloxError::InterpreterError),
             },
         }
@@ -69,7 +71,7 @@ impl ExprVisitor<Value> for Interpreter {
                 Value::Number(n) => Ok(Value::Number(-n)),
                 _ => Err(RloxError::InterpreterError),
             },
-            TokenType::Bang => Ok(Value::Bool(!self.is_truthy(&right))),
+            TokenType::Bang => Ok(Value::Bool(!self.is_truthy(right))),
             _ => Err(RloxError::InterpreterError),
         }
     }
@@ -82,7 +84,7 @@ impl ExprVisitor<Value> for Interpreter {
         let value = self.evaluate(*assign.value.clone())?;
         self.environment
             .borrow_mut()
-            .assign(&assign.name, value.clone())?;
+            .assign(&assign.name.clone(), &value.clone())?;
         Ok(value)
     }
 
@@ -90,11 +92,11 @@ impl ExprVisitor<Value> for Interpreter {
         let left = self.evaluate(*visitor.left.clone())?;
 
         if visitor.operator.token_type == TokenType::Or {
-            if self.is_truthy(&left) {
+            if self.is_truthy(left.clone()) {
                 return Ok(left);
             }
         } else {
-            if !self.is_truthy(&left) {
+            if !self.is_truthy(left.clone()) {
                 return Ok(left);
             }
         }
@@ -132,13 +134,13 @@ impl StmtVisitor<()> for Interpreter {
     fn visit_block_stmt(&self, stmt: &BlockStmt) -> Result<(), RloxError> {
         self.execute_block(
             stmt,
-            Environment::new_with_enclosing(self.environment.clone()),
+            RefCell::new(Environment::new_with_enclosing(self.environment.clone())),
         )?;
         Ok(())
     }
 
     fn visit_if_stmt(&self, stmt: &IfStmt) -> Result<(), RloxError> {
-        if self.is_truthy(&self.evaluate(*stmt.condition.clone())?) {
+        if self.is_truthy(self.evaluate(*stmt.condition.clone())?) {
             self.execute(*stmt.then_branch.clone())?
         } else if let Some(v) = &stmt.else_branch {
             return self.execute(*v.clone());
@@ -147,11 +149,15 @@ impl StmtVisitor<()> for Interpreter {
     }
 
     fn visit_while_stmt(&self, stmt: &WhileStmt) -> Result<(), RloxError> {
-        while self.is_truthy(&self.evaluate(*stmt.condition.clone())?){
+        while self.is_truthy(self.evaluate(*stmt.condition.clone())?) {
+            // match self.execute(stmt.body.clone()) {
+            //     Err(LoxResult::Break) => break,
+            //     Err(e) => return Err(e),
+            //     Ok(_) => {}
+            // }
             self.execute(*stmt.body.clone())?;
         }
         Ok(())
-
     }
 }
 
@@ -172,9 +178,9 @@ impl Interpreter {
     }
 
     // anything except null and false is true
-    fn is_truthy(&self, right: &Value) -> bool {
+    fn is_truthy(&self, right: Value) -> bool {
         match right {
-            &Value::Bool(false) | &Value::Nil => false,
+            Value::Bool(false) | Value::Nil => false,
             _ => true,
         }
     }
@@ -202,13 +208,27 @@ impl Interpreter {
         statement.accept(self)
     }
 
-    fn execute_block(&self, block: &BlockStmt, new_env: Environment) -> Result<(), RloxError> {
-        let mut previous = std::mem::replace(&mut *self.environment.borrow_mut(), new_env);
+    fn execute_block(
+        &self,
+        block: &BlockStmt,
+        new_env: RefCell<Environment>,
+    ) -> Result<(), RloxError> {
+        let mut previous = std::mem::replace(
+            &mut *self.environment.borrow_mut(),
+            new_env.borrow().clone(),
+        );
+
+        let mut result = Ok(());
 
         for statement in &block.statements {
-            self.execute(statement.clone())?;
+            if let Err(e) = self.execute(statement.clone()) {
+                result = Err(e);
+                break;
+            };
         }
-        std::mem::swap(&mut *self.environment.borrow_mut(), &mut previous);
-        Ok(())
+        if let Some(enclosing) = self.environment.borrow().enclosing.clone() {
+            std::mem::swap(&mut previous, &mut enclosing.borrow_mut().clone());
+        }
+        result
     }
 }

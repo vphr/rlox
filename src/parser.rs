@@ -213,6 +213,9 @@ impl Parser {
         if self.match_token(vec![TokenType::If]) {
             return self.if_statement();
         }
+        if self.match_token(vec![TokenType::For]) {
+            return self.for_statement();
+        }
         if self.match_token(vec![TokenType::While]) {
             return self.while_statement();
         }
@@ -354,15 +357,77 @@ impl Parser {
         Ok(expr)
     }
 
-    fn while_statement(&self) -> Result<Stmt, RloxError> {
+    fn while_statement(&mut self) -> Result<Stmt, RloxError> {
         self.consume(TokenType::LeftParen, "Expect '(' after block.".to_string())?;
-        let condition = self.expression()?;
+        let condition = Box::new(self.expression()?);
         self.consume(TokenType::RightParen, "Expect ')' after block.".to_string())?;
-        let body = self.statement()?;
+        let body = Box::new(self.statement()?);
+        dbg!(&body);
 
         Ok(Stmt::While(WhileStmt {
-            condition: Box::new(condition),
-            body: Box::new(body),
+            condition,
+            body
         }))
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt, RloxError> {
+        self.consume(TokenType::LeftParen, "Expect '(' after for.".to_string())?;
+        let initializer = if self.match_token(vec![TokenType::Semicolon]) {
+            None
+        } else if self.match_token(vec![TokenType::Var]) {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let mut condition = if !self.check(TokenType::Semicolon) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after loop condition.".to_string(),
+        )?;
+
+        let increment = if !self.check(TokenType::RightParen) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        self.consume(
+            TokenType::RightParen,
+            "Expect ')' after for clause.".to_string(),
+        )?;
+
+        let mut body = self.statement()?;
+
+        if let Some(inc) = increment {
+            body = Stmt::Block(BlockStmt {
+                statements: vec![
+                    body,
+                    Stmt::Expression(ExpressionStmt {
+                        expression: Box::new(inc),
+                    }),
+                ],
+            })
+        }
+        if condition.is_none() {
+            condition = Some(Expr::Literal(LiteralExpr {
+                value: Some(Literal::False),
+            }))
+        }
+        body = Stmt::While(WhileStmt {
+            condition: Box::new(condition.expect("cannot be none we just set the value")),
+            body: Box::new(body),
+        });
+
+        if let Some(init) = initializer {
+            body = Stmt::Block(BlockStmt {
+                statements: vec![init, body],
+            })
+        };
+        Ok(body)
     }
 }
