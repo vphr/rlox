@@ -1,48 +1,45 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{error::*, interpreter::*, scanner::*};
 
 #[derive(Debug, Clone)]
 pub struct Environment {
-    pub enclosing: Option<Box<RefCell<Environment>>>,
-    pub values: HashMap<String, Value>,
+    pub enclosing: Option<Rc<RefCell<Environment>>>,
+    pub values: RefCell<HashMap<String, Value>>,
 }
 
-impl Default for Environment{
+impl Default for Environment {
     fn default() -> Self {
         Self {
             enclosing: None,
-            values: HashMap::new(),
+            values: RefCell::new(HashMap::new()),
         }
     }
 }
 
 impl Environment {
-    pub fn new(enclosing: RefCell<Environment>) -> Environment {
+    pub fn new(enclosing: Option<Rc<RefCell<Environment>>>) -> Environment {
         Self {
-            enclosing: Some(Box::new(enclosing)),
-            values: HashMap::new(),
+            enclosing,
+            values: RefCell::new(HashMap::new()),
         }
     }
     pub fn define(&mut self, name: &Vec<u8>, value: Value) {
         let name = String::from_utf8(name.to_vec()).expect("valid string");
-        self.values.insert(name.to_string(), value);
+        self.values.borrow_mut().insert(name.to_string(), value.clone());
     }
 
     pub fn get(&self, token: &Token) -> Result<Value, RloxError> {
         let cloned_lexeme_vec = token.lexeme.to_vec();
         let name = String::from_utf8(cloned_lexeme_vec).expect("valid string");
 
-        match self.values.get(&name) {
+        match self.values.borrow().get(&name) {
             Some(val) => Ok(val.clone()),
             None => match &self.enclosing {
                 Some(enclosing) => enclosing.borrow().get(token),
                 None => Err(RloxError::RuntimeError {
                     lexeme: name.clone(),
-                    message: format!("Undefined variable {}.", &name),
+                    message: format!("Trying to get undefined variable {}.", &name),
                 }),
             },
         }
@@ -51,7 +48,7 @@ impl Environment {
         let cloned_lexeme_vec = token.lexeme.to_vec();
         let name = String::from_utf8(cloned_lexeme_vec).expect("valid string");
 
-        if self.values.contains_key(&name) {
+        if self.values.borrow().contains_key(&name) {
             self.define(&token.lexeme, value.clone());
             return Ok(());
         }
@@ -60,7 +57,7 @@ impl Environment {
             Some(enclosing) => enclosing.borrow_mut().assign(token, value),
             None => Err(RloxError::RuntimeError {
                 lexeme: name.clone(),
-                message: format!("Undefined variable '{}'.", name),
+                message: format!("Trying to assign undefined variable '{}'.", name),
             }),
         }
     }

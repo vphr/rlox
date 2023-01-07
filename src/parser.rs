@@ -222,6 +222,9 @@ impl Parser {
         if self.match_token(vec![TokenType::Print]) {
             return self.print_statement();
         }
+        if self.match_token(vec![TokenType::Return]) {
+            return self.return_statement();
+        }
         if self.match_token(vec![TokenType::LeftBrace]) {
             return Ok(Stmt::Block(BlockStmt {
                 statements: self.block()?,
@@ -522,5 +525,20 @@ impl Parser {
             params: parameters,
             body,
         }))
+    }
+
+    fn return_statement(&mut self) -> Result<Stmt, RloxError> {
+        let keyword = self.previous();
+        let value = if !self.check(TokenType::Semicolon) {
+            Some(Box::new(self.expression()?))
+        } else {
+            None
+        };
+
+        self.consume(
+            TokenType::Semicolon,
+            "expected ';' after return value".to_string(),
+        )?;
+        Ok(Stmt::Return(ReturnStmt { keyword, value }))
     }
 }

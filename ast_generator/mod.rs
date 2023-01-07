@@ -42,6 +42,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
             "If         : Box<Expr> condition, Box<Stmt> then_branch, Option<Box<Stmt>> else_branch",
             "Function   : Token name, Vec<Token> params, Vec<Stmt> body",
             "Print      : Box<Expr> expression",
+            "Return     : Token keyword, Option<Box<Expr>> value",
             "Var        : Token name, Option<Box<Expr>> initializer",
             "While      : Box<Expr> condition, Box<Stmt> body"
         ],
@@ -86,7 +87,7 @@ fn define_ast(
     write!(file, "impl {} {{\n", filename)?;
     write!(
         file,
-        "\tpub fn accept<T>(&self, {}_visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
+        "\tpub fn accept<T>(&self, {}_visitor: &mut dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
         filename.to_lowercase(),
         filename
     )?;
@@ -117,7 +118,7 @@ fn define_ast(
         let base = t.base_name.to_lowercase();
         write!(
             file,
-            "\t fn visit_{}_{}(&self, {}: &{}) -> Result<T, RloxError>;\n",
+            "\t fn visit_{}_{}(&mut self, {}: &{}) -> Result<T, RloxError>;\n",
             base,
             filename.to_lowercase(),
             filename.to_lowercase(),
@@ -130,7 +131,7 @@ fn define_ast(
         write!(file, "impl {} {{\n", t.class_name)?;
         write!(
             file,
-            "\tfn accept<T>(&self, visitor: &dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
+            "\tfn accept<T>(&self, visitor: &mut dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
             filename
         )?;
         write!(

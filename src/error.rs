@@ -1,4 +1,4 @@
-use crate::scanner::*;
+use crate::{scanner::*, interpreter::{Value, Interpreter}};
 
 #[derive(Debug)]
 pub enum RloxError {
@@ -6,6 +6,7 @@ pub enum RloxError {
     UnterminatedStringError { token: String, message: String },
     ParseError { current: usize, token: Token, message: String},
     RuntimeError { lexeme: String, message: String},
+    Return(Value),
     InterpreterError,
 }
 
@@ -23,7 +24,8 @@ impl RloxError {
                eprintln!("[line {}] Error {}", token, message)
             }
             RloxError::RuntimeError { lexeme, message } =>
-               eprintln!("[token {}] Error {}", lexeme, message)
+               eprintln!("[token {}] Error {}", lexeme, message),
+            RloxError::Return(a) => eprintln!("{}", Interpreter::stringify(a)),
 
         }
     }

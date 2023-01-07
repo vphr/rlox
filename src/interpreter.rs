@@ -5,11 +5,12 @@ use crate::expr::*;
 use crate::scanner::*;
 use crate::stmt::*;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct Interpreter {
-    pub globals: RefCell<Environment>,
-    pub environment: RefCell<Environment>,
+    pub globals: Rc<RefCell<Environment>>,
+    pub environment: Rc<RefCell<Environment>>,
 }
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -22,7 +23,7 @@ pub enum Value {
 }
 
 impl ExprVisitor<Value> for Interpreter {
-    fn visit_binary_expr(&self, expr: &BinaryExpr) -> Result<Value, RloxError> {
+    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> Result<Value, RloxError> {
         let left = self.evaluate(*expr.left.clone())?;
         let right = self.evaluate(*expr.right.clone())?;
         match (left, right) {
@@ -51,11 +52,11 @@ impl ExprVisitor<Value> for Interpreter {
         }
     }
 
-    fn visit_grouping_expr(&self, expr: &GroupingExpr) -> Result<Value, RloxError> {
+    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<Value, RloxError> {
         self.evaluate(*expr.expression.clone())
     }
 
-    fn visit_literal_expr(&self, expr: &LiteralExpr) -> Result<Value, RloxError> {
+    fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> Result<Value, RloxError> {
         let expr = expr.value.clone().expect("Valid literal expression");
         Ok(match expr {
             Literal::Identifier(i) => Value::Str(i),
@@ -67,7 +68,7 @@ impl ExprVisitor<Value> for Interpreter {
         })
     }
 
-    fn visit_unary_expr(&self, expr: &UnaryExpr) -> Result<Value, RloxError> {
+    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> Result<Value, RloxError> {
         let right = self.evaluate(*expr.right.clone())?;
         match expr.operator.token_type {
             TokenType::Minus => match right {
@@ -79,11 +80,11 @@ impl ExprVisitor<Value> for Interpreter {
         }
     }
 
-    fn visit_variable_expr(&self, variable: &VariableExpr) -> Result<Value, RloxError> {
+    fn visit_variable_expr(&mut self, variable: &VariableExpr) -> Result<Value, RloxError> {
         self.environment.borrow().get(&variable.name)
     }
 
-    fn visit_assign_expr(&self, assign: &AssignExpr) -> Result<Value, RloxError> {
+    fn visit_assign_expr(&mut self, assign: &AssignExpr) -> Result<Value, RloxError> {
         let value = self.evaluate(*assign.value.clone())?;
         self.environment
             .borrow_mut()
@@ -91,7 +92,7 @@ impl ExprVisitor<Value> for Interpreter {
         Ok(value)
     }
 
-    fn visit_logical_expr(&self, visitor: &LogicalExpr) -> Result<Value, RloxError> {
+    fn visit_logical_expr(&mut self, visitor: &LogicalExpr) -> Result<Value, RloxError> {
         let left = self.evaluate(*visitor.left.clone())?;
 
         if visitor.operator.token_type == TokenType::Or {
@@ -106,7 +107,7 @@ impl ExprVisitor<Value> for Interpreter {
         self.evaluate(*visitor.right.clone())
     }
 
-    fn visit_call_expr(&self, expr: &CallExpr) -> Result<Value, RloxError> {
+    fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<Value, RloxError> {
         let callee = self.evaluate(*expr.callee.clone())?;
 
         let mut arguments: Vec<Value> = vec![];
@@ -127,22 +128,22 @@ impl ExprVisitor<Value> for Interpreter {
 }
 
 impl StmtVisitor<()> for Interpreter {
-    fn visit_expression_stmt(&self, stmt: &ExpressionStmt) -> Result<(), RloxError> {
+    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> Result<(), RloxError> {
         let e = stmt.expression.as_ref();
         let ee = e.clone();
         self.evaluate(ee)?;
         Ok(())
     }
 
-    fn visit_print_stmt(&self, visitor: &PrintStmt) -> Result<(), RloxError> {
+    fn visit_print_stmt(&mut self, visitor: &PrintStmt) -> Result<(), RloxError> {
         let e = visitor.expression.as_ref();
         let ee = e.clone();
         let value = self.evaluate(ee)?;
-        println!("{}", self.stringify(value));
+        println!("{}", Interpreter::stringify(&value));
         Ok(())
     }
 
-    fn visit_var_stmt(&self, stmt: &VarStmt) -> Result<(), RloxError> {
+    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), RloxError> {
         let value = match &stmt.initializer {
             Some(val) => self.evaluate(*val.clone())?,
             None => Value::Nil,
@@ -153,60 +154,77 @@ impl StmtVisitor<()> for Interpreter {
         Ok(())
     }
 
-    fn visit_block_stmt(&self, stmt: &BlockStmt) -> Result<(), RloxError> {
+    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), RloxError> {
         self.execute_block(
             &stmt.statements,
-            RefCell::new(Environment::new(self.environment.clone())),
+            Environment::new(Some(Rc::clone(&self.environment))),
         )?;
         Ok(())
     }
 
-    fn visit_if_stmt(&self, stmt: &IfStmt) -> Result<(), RloxError> {
-        if self.is_truthy(self.evaluate(*stmt.condition.clone())?) {
+    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> Result<(), RloxError> {
+        let evaluated = self.evaluate(*stmt.condition.clone())?;
+        if self.is_truthy(evaluated) {
             self.execute(*stmt.then_branch.clone())?
-        } else if let Some(v) = &stmt.else_branch {
-            return self.execute(*v.clone());
+        }
+        match &stmt.else_branch {
+            Some(eb) => self.execute(*eb.clone())?,
+            None => {}
         }
         Ok(())
     }
 
-    fn visit_while_stmt(&self, stmt: &WhileStmt) -> Result<(), RloxError> {
-        while self.is_truthy(self.evaluate(*stmt.condition.clone())?) {
-            self.execute(*stmt.body.clone())?;
+    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> Result<(), RloxError> {
+        loop {
+            let evaluated_condition = self.evaluate(*stmt.condition.clone())?;
+            if self.is_truthy(evaluated_condition) {
+                self.execute(*stmt.body.clone())?
+            } else {
+                break;
+            }
         }
         Ok(())
     }
 
-    fn visit_function_stmt(&self, stmt: &FunctionStmt) -> Result<(), RloxError> {
+    fn visit_function_stmt(&mut self, stmt: &FunctionStmt) -> Result<(), RloxError> {
         let function = RloxFunction::new(stmt.clone());
         self.environment
             .borrow_mut()
             .define(&stmt.name.lexeme, Value::Func(function));
         Ok(())
     }
+
+    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> Result<(), RloxError> {
+        let value = match &stmt.value {
+            Some(val) => self.evaluate(*val.clone())?,
+            None => Value::Nil,
+        };
+
+        Err(RloxError::Return(value))
+    }
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        let globals = RefCell::new(Environment::default());
+        let globals = Rc::new(RefCell::new(Environment::default()));
         let name = "clock".as_bytes();
         globals
             .borrow_mut()
             .define(&name.to_vec(), Value::Native(RloxNative {}));
 
-        let environment = globals.clone();
+        // let environment = globals.clone();
         Self {
-            globals,
-            environment,
+            globals: Rc::clone(&globals),
+            environment: globals,
         }
     }
-    pub fn interpret(&self, statements: Vec<Stmt>) -> Result<(), RloxError> {
+    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), RloxError> {
         for statement in statements {
             self.execute(statement)?
         }
         Ok(())
     }
-    fn evaluate(&self, expr: Expr) -> Result<Value, RloxError> {
+    fn evaluate(&mut self, expr: Expr) -> Result<Value, RloxError> {
         expr.accept(self)
     }
 
@@ -228,9 +246,9 @@ impl Interpreter {
         }
     }
 
-    fn stringify(&self, value: Value) -> String {
-        match value {
-            Value::Str(s) => s,
+    pub fn stringify(value: &Value) -> String {
+        match &value {
+            Value::Str(s) => s.to_string(),
             Value::Number(n) => n.to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Nil => "nil".to_string(),
@@ -239,20 +257,26 @@ impl Interpreter {
         }
     }
 
-    fn execute(&self, statement: Stmt) -> Result<(), RloxError> {
+    fn execute(&mut self, statement: Stmt) -> Result<(), RloxError> {
         statement.accept(self)
     }
 
     pub fn execute_block(
-        &self,
+        &mut self,
         statements: &Vec<Stmt>,
-        new_env: RefCell<Environment>,
+        new_env: Environment,
     ) -> Result<(), RloxError> {
-        let mut previous = std::mem::replace(
-            &mut *self.environment.borrow_mut(),
-            new_env.borrow().clone(),
-        );
+        // let prev = self.environment.clone();
+        //
+        // let mut a = Rc::new(RefCell::new(new_env));
 
+        let previous = self.environment.clone();
+        self.environment = Rc::new(RefCell::new(new_env));
+        // let mut previous = std::mem::swap(
+        //     self.environment.borrow_mut(),
+        //     &mut a,
+        // );
+        //
         let mut result = Ok(());
 
         for statement in statements {
@@ -261,9 +285,10 @@ impl Interpreter {
                 break;
             };
         }
-        if let Some(enclosing) = self.environment.borrow().enclosing.clone() {
-            std::mem::swap(&mut previous, &mut enclosing.borrow_mut().clone());
-        }
+        // if let Some(enclosing) = self.environment.borrow().enclosing.clone() {
+        //     std::mem::swap(&mut prev, &mut enclosing);
+        // }
+        self.environment = previous;
         result
     }
 }
