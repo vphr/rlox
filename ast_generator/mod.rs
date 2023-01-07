@@ -77,7 +77,7 @@ fn define_ast(
         let class_name = format!("{}{}", base_name, filename);
         tree_types.push(TreeType::new(base_name.to_string(), class_name, fields))
     }
-    write!(file, "#[derive(Debug, Clone)]\n")?;
+    write!(file, "#[derive(Debug, Clone, PartialEq, Eq, Hash)]\n")?;
     write!(file, "pub enum {} {{\n", filename)?;
     for t in &tree_types {
         write!(file, "\t{}({}),\n", t.base_name, t.class_name)?;
@@ -106,7 +106,7 @@ fn define_ast(
     write!(file, "}}\n")?;
 
     for t in &tree_types {
-        write!(file, "#[derive(Debug, Clone)]\n")?;
+        write!(file, "#[derive(Debug, Clone, PartialEq, Eq, Hash)]\n")?;
         write!(file, "pub struct {} {{\n", t.class_name)?;
         for f in &t.fields {
             write!(file, "\t pub {},\n", f)?;

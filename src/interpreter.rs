@@ -5,12 +5,14 @@ use crate::expr::*;
 use crate::scanner::*;
 use crate::stmt::*;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct Interpreter {
     pub globals: Rc<RefCell<Environment>>,
     pub environment: Rc<RefCell<Environment>>,
+    pub locals: HashMap<Expr, usize>,
 }
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -81,14 +83,31 @@ impl ExprVisitor<Value> for Interpreter {
     }
 
     fn visit_variable_expr(&mut self, variable: &VariableExpr) -> Result<Value, RloxError> {
-        self.environment.borrow().get(&variable.name)
+        let expr = Expr::Variable(VariableExpr {
+            name: variable.name.clone(),
+        });
+
+        self.lookup(&variable.name, &expr)
     }
 
     fn visit_assign_expr(&mut self, assign: &AssignExpr) -> Result<Value, RloxError> {
         let value = self.evaluate(*assign.value.clone())?;
-        self.environment
-            .borrow_mut()
-            .assign(&assign.name.clone(), &value.clone())?;
+        let expr = Expr::Assign(AssignExpr {
+            name: assign.name.clone(),
+            value: Box::new(*assign.value.clone()),
+        });
+        match self.locals.get(&expr) {
+            Some(distance) => {
+                self.environment
+                    .borrow_mut()
+                    .assign_at(distance, &assign.name, &value)?
+            }
+            None => self
+                .globals
+                .borrow_mut()
+                .assign(&assign.name.clone(), &value.clone())?,
+        }
+
         Ok(value)
     }
 
@@ -187,7 +206,7 @@ impl StmtVisitor<()> for Interpreter {
     }
 
     fn visit_function_stmt(&mut self, stmt: &FunctionStmt) -> Result<(), RloxError> {
-        let function = RloxFunction::new(stmt.clone());
+        let function = RloxFunction::new(stmt.clone(), Rc::clone(&self.environment));
         self.environment
             .borrow_mut()
             .define(&stmt.name.lexeme, Value::Func(function));
@@ -216,6 +235,7 @@ impl Interpreter {
         Self {
             globals: Rc::clone(&globals),
             environment: globals,
+            locals: HashMap::new(),
         }
     }
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), RloxError> {
@@ -266,17 +286,8 @@ impl Interpreter {
         statements: &Vec<Stmt>,
         new_env: Environment,
     ) -> Result<(), RloxError> {
-        // let prev = self.environment.clone();
-        //
-        // let mut a = Rc::new(RefCell::new(new_env));
-
         let previous = self.environment.clone();
         self.environment = Rc::new(RefCell::new(new_env));
-        // let mut previous = std::mem::swap(
-        //     self.environment.borrow_mut(),
-        //     &mut a,
-        // );
-        //
         let mut result = Ok(());
 
         for statement in statements {
@@ -285,10 +296,21 @@ impl Interpreter {
                 break;
             };
         }
-        // if let Some(enclosing) = self.environment.borrow().enclosing.clone() {
-        //     std::mem::swap(&mut prev, &mut enclosing);
-        // }
         self.environment = previous;
         result
+    }
+
+    pub fn resolve(&mut self, expr: &Expr, depth: usize) {
+        dbg!(&self.locals);
+        self.locals.insert(expr.clone(), depth);
+        println!("after");
+        dbg!(&self.locals);
+    }
+
+    fn lookup(&self, name: &Token, variable: &Expr) -> Result<Value, RloxError> {
+        match self.locals.get(variable) {
+            Some(distance) => Ok(self.environment.borrow().get_at(distance, name)?),
+            None => self.globals.borrow().get(name),
+        }
     }
 }

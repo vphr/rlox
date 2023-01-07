@@ -11,6 +11,7 @@ use crate::error::*;
 #[derive(Debug, Clone)]
 pub struct RloxFunction {
     declaration: FunctionStmt,
+    closure: Rc<RefCell<Environment>>,
 }
 pub trait RloxCallable {
     fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, RloxError>;
@@ -18,14 +19,14 @@ pub trait RloxCallable {
 }
 
 impl RloxFunction {
-    pub fn new(declaration: FunctionStmt) -> Self {
-        Self { declaration }
+    pub fn new(declaration: FunctionStmt, closure: Rc<RefCell<Environment>>) -> Self {
+        Self { declaration, closure }
     }
 }
 
 impl RloxCallable for RloxFunction {
     fn call(&self, interpreter: &mut Interpreter, args: &[Value]) -> Result<Value, RloxError> {
-        let mut environment = Environment::new(Some(Rc::clone(&interpreter.globals)));
+        let mut environment = Environment::new(Some(Rc::clone(&self.closure)));
 
         for (token, val) in self.declaration.params.iter().zip(args.iter()) {
             environment.define(&token.lexeme, val.clone())

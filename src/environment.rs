@@ -26,7 +26,16 @@ impl Environment {
     }
     pub fn define(&mut self, name: &Vec<u8>, value: Value) {
         let name = String::from_utf8(name.to_vec()).expect("valid string");
-        self.values.borrow_mut().insert(name.to_string(), value.clone());
+        self.values
+            .borrow_mut()
+            .insert(name.to_string(), value.clone());
+    }
+    pub fn get_at(&self, distance: &usize, token: &Token) -> Result<Value, RloxError> {
+        let name = String::from_utf8(token.lexeme.to_vec()).expect("valid string");
+        match self.ancestor(distance).values.borrow().get(&name) {
+            Some(val) => Ok(val.clone()),
+            None => Err(RloxError::InterpreterError),
+        }
     }
 
     pub fn get(&self, token: &Token) -> Result<Value, RloxError> {
@@ -60,5 +69,21 @@ impl Environment {
                 message: format!("Trying to assign undefined variable '{}'.", name),
             }),
         }
+    }
+    pub fn assign_at(&mut self,distance: &usize, token: &Token, value: &Value) -> Result<(), RloxError> {
+        let name = String::from_utf8(token.lexeme.to_vec()).expect("valid string");
+        self.ancestor(distance).values.borrow_mut().insert(name, value.clone());
+        Ok(())
+    }
+
+    fn ancestor(&self, distance: &usize) -> Self {
+        let mut environment = self.clone();
+        for _ in 0..*distance {
+            if let Some(enclosing) = &self.enclosing {
+                environment = enclosing.borrow().clone();
+            }
+        }
+
+        environment
     }
 }

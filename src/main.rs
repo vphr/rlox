@@ -7,6 +7,7 @@ mod parser;
 mod scanner;
 mod stmt;
 mod callable;
+mod resolver;
 
 use error::RloxError;
 use std::{
@@ -19,6 +20,7 @@ use std::{
 // use crate::ast_printer::AstPrinter;
 use crate::interpreter::*;
 use crate::parser::*;
+use crate::resolver::*;
 
 struct Rlox {
     interpreter: Interpreter,
@@ -68,7 +70,9 @@ impl Rlox {
         let statements = parser.parse()?;
         // println!("{:#?}", statements);
 
-        self.interpreter.interpret(statements)
+        let mut resolver = Resolver::new(self.interpreter.clone());
+        resolver.resolve_statements(statements.clone())?;
+        resolver.interpreter.interpret(statements)
     }
 }
 

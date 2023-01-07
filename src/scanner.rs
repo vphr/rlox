@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use crate::error::*;
 
@@ -241,7 +242,7 @@ impl Scanner {
 //     let mut scanner = Scanner::default();
 //     scanner.scan_tokens(input)
 // }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -302,7 +303,35 @@ pub enum Literal {
     Nil,
 }
 
-#[derive(Debug, Clone)]
+impl Hash for Literal {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Literal::Identifier(i) => i.hash(state),
+            Literal::Str(s) => s.hash(state),
+            Literal::Number(n) => n.to_bits().hash(state),
+            Literal::True => true.hash(state),
+            Literal::False => false.hash(state),
+            Literal::Nil => "".hash(state),
+        }
+    }
+}
+
+impl Eq for Literal {}
+impl PartialEq for Literal {
+    fn eq(&self, other: &Literal) -> bool {
+        match (self, other) {
+            (Literal::Identifier(fst), Literal::Identifier(snd)) => fst.eq(snd),
+            (Literal::Str(fst), Literal::Str(snd)) => fst.eq(snd),
+            (Literal::Number(fst), Literal::Number(snd)) => fst.eq(snd),
+            (Literal::True, Literal::True) => true,
+            (Literal::False, Literal::False) => true,
+            (Literal::Nil, Literal::Nil) => true,
+            (_, _) => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: Vec<u8>,
