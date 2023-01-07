@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    rc::Rc,
+    collections::HashMap
 };
 
 use crate::{error::*, interpreter::*, scanner::*};
@@ -12,14 +11,17 @@ pub struct Environment {
     pub values: HashMap<String, Value>,
 }
 
-impl Environment {
-    pub fn new() -> Environment {
+impl Default for Environment{
+    fn default() -> Self {
         Self {
             enclosing: None,
             values: HashMap::new(),
         }
     }
-    pub fn new_with_enclosing(enclosing: RefCell<Environment>) -> Environment {
+}
+
+impl Environment {
+    pub fn new(enclosing: RefCell<Environment>) -> Environment {
         Self {
             enclosing: Some(Box::new(enclosing)),
             values: HashMap::new(),

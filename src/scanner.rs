@@ -107,7 +107,8 @@ impl Scanner {
             }
             '/' => {
                 if self.match_next_token('/') {
-                    while let ch = self.peek() {
+                    loop {
+                        let ch = self.peek();
                         if ch != '\n' || ch != '\0' {
                             self.advance();
                         } else {
@@ -178,7 +179,8 @@ impl Scanner {
         }
         if self.is_end() {
             return Err(RloxError::UnterminatedStringError {
-                token: String::from_utf8(self.source[self.start..self.current-1].to_vec()).expect("valid string range"),
+                token: String::from_utf8(self.source[self.start..self.current - 1].to_vec())
+                    .expect("valid string range"),
                 message: "unhandled: unterminated string".to_string(),
             });
         }

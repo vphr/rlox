@@ -250,11 +250,14 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<Stmt, RloxError> {
-        let res = if self.match_token(vec![TokenType::Var]) {
+        let res = if self.match_token(vec![TokenType::Fun]) {
+            self.fun_declaration("function")
+        } else if self.match_token(vec![TokenType::Var]) {
             self.var_declaration()
         } else {
             self.statement()
         };
+
         if res.is_err() {
             self.synchronize();
         }
@@ -452,7 +455,7 @@ impl Parser {
                     });
                 }
                 arguments.push(Box::new(self.expression()?));
-                if self.match_token(vec![TokenType::Comma]) {
+                if !self.match_token(vec![TokenType::Comma]) {
                     break;
                 }
             }
@@ -467,6 +470,57 @@ impl Parser {
             callee: Box::new(expr),
             paren,
             arguments,
+        }))
+    }
+
+    fn fun_declaration(&mut self, kind: &str) -> Result<Stmt, RloxError> {
+        let name = self.consume(
+            TokenType::Identifier,
+            format!("Expect {kind} name").to_string(),
+        )?;
+
+        self.consume(
+            TokenType::LeftParen,
+            format!("Expect '(' after {kind} name.").to_string(),
+        )?;
+
+        let mut parameters: Vec<Token> = vec![];
+
+        if !self.check(TokenType::RightParen) {
+            loop {
+                if parameters.len() >= 255 {
+                    return Err(RloxError::ParseError {
+                        current: self.current,
+                        token: self.peek(),
+                        message: "Can't have more than 255 arguments.".to_string(),
+                    });
+                }
+                parameters.push(self.consume(
+                    TokenType::Identifier,
+                    format!("Expect parameter name.").to_string(),
+                )?);
+                if !self.match_token(vec![TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+
+        self.consume(
+            TokenType::RightParen,
+            format!("Expect ')' after parameters.").to_string(),
+        )?;
+
+        self.consume(
+            TokenType::LeftBrace,
+            format!("Expect '{{' before {kind} body.").to_string(),
+        )?;
+
+        let body = self.block()?;
+
+        Ok(Stmt::Function(FunctionStmt {
+            name,
+            params: parameters,
+            body,
         }))
     }
 }

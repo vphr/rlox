@@ -6,12 +6,13 @@ mod interpreter;
 mod parser;
 mod scanner;
 mod stmt;
+mod callable;
 
 use error::RloxError;
 use std::{
     env::args,
     fs::read_to_string,
-    io::{stdin, stdout, Error, Write},
+    io::{stdin, stdout, Write},
     process::exit,
 };
 
@@ -29,7 +30,7 @@ impl Rlox {
             interpreter: Interpreter::new(),
         }
     }
-    pub fn run_file(&self, path: &str) -> std::io::Result<()> {
+    pub fn run_file(&mut self, path: &str) -> std::io::Result<()> {
         let file = read_to_string(path)?;
         match self.run(&file) {
             Ok(_) => {}
@@ -40,7 +41,7 @@ impl Rlox {
         Ok(())
     }
 
-    pub fn run_prompt(&self) -> std::io::Result<()> {
+    pub fn run_prompt(&mut self) -> std::io::Result<()> {
         Ok(loop {
             print!("> ");
             stdout().flush()?;
@@ -57,7 +58,7 @@ impl Rlox {
             }
         })
     }
-    pub fn run(&self, source: &str) -> Result<(), RloxError> {
+    pub fn run(&mut self, source: &str) -> Result<(), RloxError> {
         let scanner = scanner::Scanner::default().scan_tokens(source.to_string())?;
         let mut parser = Parser {
             tokens: scanner.to_vec(),
@@ -72,7 +73,7 @@ impl Rlox {
 }
 
 fn main() -> std::io::Result<()> {
-    let rlox = Rlox::new();
+    let mut rlox = Rlox::new();
     let args: Vec<_> = args().collect();
     if args.len() > 2 {
         println!("Usage: rlox [script]");

@@ -40,6 +40,7 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
             "Block      : Vec<Stmt> statements",
             "Expression : Box<Expr> expression",
             "If         : Box<Expr> condition, Box<Stmt> then_branch, Option<Box<Stmt>> else_branch",
+            "Function   : Token name, Vec<Token> params, Vec<Stmt> body",
             "Print      : Box<Expr> expression",
             "Var        : Token name, Option<Box<Expr>> initializer",
             "While      : Box<Expr> condition, Box<Stmt> body"
