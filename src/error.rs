@@ -17,7 +17,7 @@ impl RloxError {
                eprintln!("[line {}] Error {}", character, message)
             }
             RloxError::ParseError {current, token, message} => {
-                eprintln!("[position {}] Error {} lexeme {:?}",current,message, String::from_utf8(token.lexeme.clone()).unwrap() )
+                eprintln!("[position {}] Error {} lexeme {:?}",current,message, token.lexeme )
             }
             RloxError::InterpreterError => eprintln!("todo: implement interpreter error messages"),
             RloxError::UnterminatedStringError { token, message } => {

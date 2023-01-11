@@ -1,268 +1,208 @@
 use crate::callable::*;
 use crate::environment::*;
 use crate::error::RloxError;
-use crate::expr::*;
+use crate::expr::Expr;
 use crate::scanner::*;
 use crate::stmt::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct Interpreter {
-    pub globals: Rc<RefCell<Environment>>,
-    pub environment: Rc<RefCell<Environment>>,
-    pub locals: HashMap<Expr, usize>,
+    globals: Rc<RefCell<Environment>>,
+    environment: Rc<RefCell<Environment>>,
+    locals: HashMap<usize, usize>,
 }
 #[derive(Debug, Clone)]
 pub enum Value {
     Str(String),
     Number(f64),
     Bool(bool),
-    Func(RloxFunction),
-    Native(RloxNative),
+    Func(Rc<dyn RloxCallable>),
     Nil,
 }
 
-impl ExprVisitor<Value> for Interpreter {
-    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> Result<Value, RloxError> {
-        let left = self.evaluate(*expr.left.clone())?;
-        let right = self.evaluate(*expr.right.clone())?;
-        match (left, right) {
-            (Value::Number(l), Value::Number(r)) => match expr.operator.token_type {
-                TokenType::Minus => Ok(Value::Number(l - r)),
-                TokenType::Slash => Ok(Value::Number(l / r)),
-                TokenType::Star => Ok(Value::Number(l * r)),
-                TokenType::Plus => Ok(Value::Number(l + r)),
-                TokenType::Greater => Ok(Value::Bool(l.gt(&r))),
-                TokenType::GreaterEqual => Ok(Value::Bool(l.ge(&r))),
-                TokenType::Less => Ok(Value::Bool(l.lt(&r))),
-                TokenType::LessEqual => Ok(Value::Bool(l.le(&r))),
-                TokenType::EqualEqual => Ok(Value::Bool(l.eq(&r))),
-                TokenType::BangEqual => Ok(Value::Bool(l.eq(&r))),
-                _ => Err(RloxError::InterpreterError),
-            },
-            (Value::Str(l), Value::Str(r)) => match expr.operator.token_type {
-                TokenType::Plus => Ok(Value::Str(l + &r)),
-                _ => Err(RloxError::InterpreterError),
-            },
-            (left, right) => match expr.operator.token_type {
-                TokenType::EqualEqual => self.is_equal(left, right),
-                TokenType::BangEqual => self.is_equal(left, right),
-                _ => Err(RloxError::InterpreterError),
-            },
-        }
-    }
-
-    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<Value, RloxError> {
-        self.evaluate(*expr.expression.clone())
-    }
-
-    fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> Result<Value, RloxError> {
-        let expr = expr.value.clone().expect("Valid literal expression");
-        Ok(match expr {
-            Literal::Identifier(i) => Value::Str(i),
-            Literal::Str(s) => Value::Str(s),
-            Literal::Number(n) => Value::Number(n),
-            Literal::True => Value::Bool(true),
-            Literal::False => Value::Bool(false),
-            Literal::Nil => Value::Nil,
-        })
-    }
-
-    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> Result<Value, RloxError> {
-        let right = self.evaluate(*expr.right.clone())?;
-        match expr.operator.token_type {
-            TokenType::Minus => match right {
-                Value::Number(n) => Ok(Value::Number(-n)),
-                _ => Err(RloxError::InterpreterError),
-            },
-            TokenType::Bang => Ok(Value::Bool(!self.is_truthy(right))),
-            _ => Err(RloxError::InterpreterError),
-        }
-    }
-
-    fn visit_variable_expr(&mut self, variable: &VariableExpr) -> Result<Value, RloxError> {
-        let expr = Expr::Variable(VariableExpr {
-            name: variable.name.clone(),
-        });
-
-        self.lookup(&variable.name, &expr)
-    }
-
-    fn visit_assign_expr(&mut self, assign: &AssignExpr) -> Result<Value, RloxError> {
-        let value = self.evaluate(*assign.value.clone())?;
-        let expr = Expr::Assign(AssignExpr {
-            name: assign.name.clone(),
-            value: Box::new(*assign.value.clone()),
-        });
-        match self.locals.get(&expr) {
-            Some(distance) => {
-                self.environment
-                    .borrow_mut()
-                    .assign_at(distance, &assign.name, &value)?
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Value::Nil => write!(f, "nil"),
+            Value::Number(num) => {
+                if num.fract() == 0.0 {
+                    write!(f, "{:.0}", num)
+                } else {
+                    write!(f, "{}", num)
+                }
             }
-            None => self
-                .globals
-                .borrow_mut()
-                .assign(&assign.name.clone(), &value.clone())?,
-        }
-
-        Ok(value)
-    }
-
-    fn visit_logical_expr(&mut self, visitor: &LogicalExpr) -> Result<Value, RloxError> {
-        let left = self.evaluate(*visitor.left.clone())?;
-
-        if visitor.operator.token_type == TokenType::Or {
-            if self.is_truthy(left.clone()) {
-                return Ok(left);
-            }
-        } else {
-            if !self.is_truthy(left.clone()) {
-                return Ok(left);
-            }
-        }
-        self.evaluate(*visitor.right.clone())
-    }
-
-    fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<Value, RloxError> {
-        let callee = self.evaluate(*expr.callee.clone())?;
-
-        let mut arguments: Vec<Value> = vec![];
-
-        for args in &expr.arguments {
-            arguments.push(self.evaluate(*args.clone())?);
-        }
-
-        if let Value::Func(function) = callee {
-            if !arguments.len().eq(&function.arity()) {
-                return Err(RloxError::InterpreterError);
-            }
-            return function.call(self, &arguments);
-        } else {
-            return Err(RloxError::InterpreterError);
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Str(s) => write!(f, "{}", s),
+            Value::Func(func) => write!(f, "{:?}", func),
         }
     }
 }
 
-impl StmtVisitor<()> for Interpreter {
-    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> Result<(), RloxError> {
-        let e = stmt.expression.as_ref();
-        let ee = e.clone();
-        self.evaluate(ee)?;
-        Ok(())
-    }
-
-    fn visit_print_stmt(&mut self, visitor: &PrintStmt) -> Result<(), RloxError> {
-        let e = visitor.expression.as_ref();
-        let ee = e.clone();
-        let value = self.evaluate(ee)?;
-        println!("{}", Interpreter::stringify(&value));
-        Ok(())
-    }
-
-    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), RloxError> {
-        let value = match &stmt.initializer {
-            Some(val) => self.evaluate(*val.clone())?,
-            None => Value::Nil,
-        };
-        self.environment
-            .borrow_mut()
-            .define(&stmt.name.lexeme, value);
-        Ok(())
-    }
-
-    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), RloxError> {
-        self.execute_block(
-            &stmt.statements,
-            Environment::new(Some(Rc::clone(&self.environment))),
-        )?;
-        Ok(())
-    }
-
-    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> Result<(), RloxError> {
-        let evaluated = self.evaluate(*stmt.condition.clone())?;
-        if self.is_truthy(evaluated) {
-            self.execute(*stmt.then_branch.clone())?
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Str(a), Value::Str(b)) => a == b,
+            _ => false,
         }
-        match &stmt.else_branch {
-            Some(eb) => self.execute(*eb.clone())?,
-            None => {}
-        }
-        Ok(())
-    }
-
-    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> Result<(), RloxError> {
-        loop {
-            let evaluated_condition = self.evaluate(*stmt.condition.clone())?;
-            if self.is_truthy(evaluated_condition) {
-                self.execute(*stmt.body.clone())?
-            } else {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    fn visit_function_stmt(&mut self, stmt: &FunctionStmt) -> Result<(), RloxError> {
-        let function = RloxFunction::new(stmt.clone(), Rc::clone(&self.environment));
-        self.environment
-            .borrow_mut()
-            .define(&stmt.name.lexeme, Value::Func(function));
-        Ok(())
-    }
-
-    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> Result<(), RloxError> {
-        let value = match &stmt.value {
-            Some(val) => self.evaluate(*val.clone())?,
-            None => Value::Nil,
-        };
-
-        Err(RloxError::Return(value))
     }
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         let globals = Rc::new(RefCell::new(Environment::default()));
-        let name = "clock".as_bytes();
         globals
             .borrow_mut()
-            .define(&name.to_vec(), Value::Native(RloxNative {}));
-
-        // let environment = globals.clone();
+            .define("clock", Rc::new(Value::Func(Rc::new(Clock {}))));
+        
         Self {
-            globals: Rc::clone(&globals),
+            globals: globals.clone(),
             environment: globals,
             locals: HashMap::new(),
         }
     }
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), RloxError> {
         for statement in statements {
-            self.execute(statement)?
+            self.execute(&statement)?
         }
         Ok(())
     }
-    fn evaluate(&mut self, expr: Expr) -> Result<Value, RloxError> {
-        expr.accept(self)
-    }
+    fn evaluate(&mut self, expr: &Expr) -> Result<Rc<Value>, RloxError> {
+        match expr {
+            Expr::Nil => Ok(Rc::new(Value::Nil)),
+            Expr::Number(n) => Ok(Rc::new(Value::Number(*n))),
+            Expr::String(s) => Ok(Rc::new(Value::Str(s.to_string()))),
+            Expr::Boolean(b) => Ok(Rc::new(Value::Bool(*b))),
+            Expr::Grouping { expression } => self.evaluate(expression),
+            Expr::Binary {
+                left,
+                operator,
+                right,
+            } => self.binary_expr(left, &operator.token_type, right),
+            Expr::Unary { operator, right } => self.unary_expr(&operator.token_type, right),
+            Expr::Logical {
+                left,
+                operator,
+                right,
+            } => self.logical_expr(left, &operator.token_type, right),
+            Expr::Variable { id, name } => {
+                let depth = self.locals.get(id).copied();
+                if let Some(depth) = depth {
+                    self.environment.borrow().get_at(depth, name)
+                } else {
+                    self.globals.borrow().get_at(0, name)
+                }
+            }
+            Expr::Assign { id, name, value } => {
+                let value = self.evaluate(value)?;
+                let depth = self.locals.get(id).copied();
 
-    // anything except null and false is true
-    fn is_truthy(&self, right: Value) -> bool {
-        match right {
-            Value::Bool(false) | Value::Nil => false,
-            _ => true,
+                if let Some(depth) = depth {
+                    self.environment
+                        .borrow_mut()
+                        .assign_at(&depth, name, value.clone())?;
+                } else {
+                    self.globals
+                        .borrow_mut()
+                        .assign_at(&0, name, value.clone())?;
+                }
+                Ok(value)
+            }
+            Expr::Call { callee, arguments } => self.call_expr(callee, arguments),
         }
     }
 
-    fn is_equal(&self, left: Value, right: Value) -> Result<Value, RloxError> {
-        match (left, right) {
-            (Value::Str(l), Value::Str(r)) => Ok(Value::Bool(l.eq(&r))),
-            (Value::Number(l), Value::Number(r)) => Ok(Value::Bool(l.eq(&r))),
-            (Value::Bool(l), Value::Bool(r)) => Ok(Value::Bool(l.eq(&r))),
-            (Value::Nil, Value::Nil) => Ok(Value::Bool(true)),
-            _ => Ok(Value::Bool(false)),
+    fn logical_expr(
+        &mut self,
+        left: &Expr,
+        operator: &TokenType,
+        right: &Expr,
+    ) -> Result<Rc<Value>, RloxError> {
+        let left = self.evaluate(left)?;
+
+        if *operator == TokenType::Or {
+            if self.is_truthy(&left) {
+                return Ok(left);
+            }
+        } else {
+            if !self.is_truthy(&left) {
+                return Ok(left);
+            }
+        }
+        self.evaluate(right)
+    }
+    fn binary_expr(
+        &mut self,
+        left: &Expr,
+        token_type: &TokenType,
+        right: &Expr,
+    ) -> Result<Rc<Value>, RloxError> {
+        let left = &*self.evaluate(left)?;
+        let right = &*self.evaluate(right)?;
+
+        match (left, token_type, right) {
+            (Value::Number(l), TokenType::Star, Value::Number(r)) => {
+                Ok(Rc::new(Value::Number(l * r)))
+            }
+            (Value::Number(l), TokenType::Minus, Value::Number(r)) => {
+                Ok(Rc::new(Value::Number(l - r)))
+            }
+            (Value::Number(l), TokenType::Plus, Value::Number(r)) => {
+                Ok(Rc::new(Value::Number(l + r)))
+            }
+            (Value::Number(l), TokenType::Greater, Value::Number(r)) => {
+                Ok(Rc::new(Value::Bool(l.gt(&r))))
+            }
+            (Value::Number(l), TokenType::GreaterEqual, Value::Number(r)) => {
+                Ok(Rc::new(Value::Bool(l.ge(&r))))
+            }
+            (Value::Number(l), TokenType::Less, Value::Number(r)) => {
+                Ok(Rc::new(Value::Bool(l.lt(&r))))
+            }
+            (Value::Number(l), TokenType::LessEqual, Value::Number(r)) => {
+                Ok(Rc::new(Value::Bool(l.le(&r))))
+            }
+            (Value::Str(l), TokenType::Plus, Value::Str(r)) => {
+                Ok(Rc::new(Value::Str(l.clone() + &r)))
+            }
+            (Value::Number(l), TokenType::EqualEqual, Value::Number(r)) => {
+                Ok(Rc::new(Value::Bool(l.eq(&r))))
+            }
+            (Value::Number(l), TokenType::BangEqual, Value::Number(r)) => {
+                Ok(Rc::new(Value::Bool(!l.eq(&r))))
+            }
+            (Value::Bool(l), TokenType::EqualEqual, Value::Bool(r)) => {
+                Ok(Rc::new(Value::Bool(l.eq(&r))))
+            }
+            (Value::Bool(l), TokenType::BangEqual, Value::Bool(r)) => {
+                Ok(Rc::new(Value::Bool(!l.eq(&r))))
+            }
+            _ => Err(RloxError::InterpreterError),
+        }
+    }
+    fn unary_expr(&mut self, token_type: &TokenType, expr: &Expr) -> Result<Rc<Value>, RloxError> {
+        let right = self.evaluate(expr)?;
+        match token_type {
+            TokenType::Minus => match *right {
+                Value::Number(n) => Ok(Rc::new(Value::Number(-n))),
+                _ => Err(RloxError::InterpreterError),
+            },
+            TokenType::Bang => Ok(Rc::new(Value::Bool(!self.is_truthy(&right)))),
+            _ => Err(RloxError::InterpreterError),
+        }
+    }
+    // anything except null and false is true
+    fn is_truthy(&self, right: &Value) -> bool {
+        match *right {
+            Value::Bool(false) | Value::Nil => false,
+            _ => true,
         }
     }
 
@@ -273,44 +213,118 @@ impl Interpreter {
             Value::Bool(b) => b.to_string(),
             Value::Nil => "nil".to_string(),
             Value::Func(_) => "<func>".to_string(),
-            Value::Native(_) => "<native>".to_string(),
         }
     }
+    pub fn add_scopes(&mut self, scopes: HashMap<usize, usize>) {
+        scopes.iter().for_each(|(&k, &v)| {
+            self.locals.insert(k, v);
+        });
+    }
 
-    fn execute(&mut self, statement: Stmt) -> Result<(), RloxError> {
-        statement.accept(self)
+    fn execute(&mut self, statement: &Stmt) -> Result<(), RloxError> {
+        match statement {
+            Stmt::Print { expression } => {
+                println!("{:?}", self.evaluate(expression)?);
+                Ok(())
+            }
+            Stmt::Expression { expression } => {
+                self.evaluate(expression)?;
+                Ok(())
+            }
+            Stmt::Var { name, initializer } => {
+                let value = if let Some(expression) = initializer {
+                    self.evaluate(&expression)?
+                } else {
+                    Rc::new(Value::Nil)
+                };
+
+                self.environment.borrow_mut().define(&name, value);
+                Ok(())
+            }
+            Stmt::Block { statements } => self.execute_block(
+                statements,
+                Rc::new(RefCell::new(Environment::new(self.environment.clone()))),
+            ),
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let condition = self.evaluate(condition)?;
+                if self.is_truthy(&condition) {
+                    self.execute(then_branch)
+                } else if let Some(else_branch) = else_branch {
+                    self.execute(else_branch)
+                } else {
+                    Ok(())
+                }
+            }
+            Stmt::While { condition, body } => {
+                let mut evaluated_condition = self.evaluate(&condition)?;
+                while self.is_truthy(&evaluated_condition) {
+                    self.execute(body)?;
+                    evaluated_condition = self.evaluate(&condition)?;
+                }
+                Ok(())
+            }
+            Stmt::Function {
+                name,
+                parameters,
+                body,
+            } => {
+                let function = Rc::new(Value::Func(Rc::new(RloxFunction::new(
+                    parameters.clone(),
+                    body.clone(),
+                    self.environment.clone(),
+                ))));
+                self.environment.borrow_mut().define(&name, function);
+                Ok(())
+            }
+            Stmt::Return { value } => {
+                let value = if let Some(value) = value {
+                    self.evaluate(value)?
+                } else {
+                    Rc::new(Value::Nil)
+                };
+                Err(RloxError::Return(value.as_ref().clone()))
+            }
+        }
     }
 
     pub fn execute_block(
         &mut self,
         statements: &Vec<Stmt>,
-        new_env: Environment,
+        new_env: Rc<RefCell<Environment>>,
     ) -> Result<(), RloxError> {
         let previous = self.environment.clone();
-        self.environment = Rc::new(RefCell::new(new_env));
-        let mut result = Ok(());
+        self.environment = new_env;
 
         for statement in statements {
-            if let Err(e) = self.execute(statement.clone()) {
-                result = Err(e);
-                break;
-            };
+            self.execute(statement).map_err(|err| {
+                self.environment = previous.clone();
+                err
+            })?;
         }
         self.environment = previous;
-        result
+        Ok(())
     }
 
-    pub fn resolve(&mut self, expr: &Expr, depth: usize) {
-        dbg!(&self.locals);
-        self.locals.insert(expr.clone(), depth);
-        println!("after");
-        dbg!(&self.locals);
-    }
+    fn call_expr(&mut self, callee: &Expr, arguments: &Vec<Expr>) -> Result<Rc<Value>, RloxError> {
+        let callee = self.evaluate(callee)?;
 
-    fn lookup(&self, name: &Token, variable: &Expr) -> Result<Value, RloxError> {
-        match self.locals.get(variable) {
-            Some(distance) => Ok(self.environment.borrow().get_at(distance, name)?),
-            None => self.globals.borrow().get(name),
+        let mut args: Vec<Rc<Value>> = vec![];
+
+        for arg in arguments {
+            args.push(self.evaluate(arg)?);
+        }
+
+        if let Value::Func(function) = callee.as_ref() {
+            if !arguments.len().eq(&function.arity()) {
+                return Err(RloxError::InterpreterError);
+            }
+            return function.call(self, &args);
+        } else {
+            return Err(RloxError::InterpreterError);
         }
     }
 }

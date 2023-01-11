@@ -3,15 +3,13 @@ use std::{fs::File, io::Write};
 #[derive(Debug)]
 struct TreeType {
     base_name: String,
-    class_name: String,
     fields: Vec<String>,
 }
 
 impl TreeType {
-    fn new(base_name: String, class_name: String, fields: Vec<String>) -> Self {
+    fn new(base_name: String, fields: Vec<String>) -> Self {
         Self {
             base_name,
-            class_name,
             fields,
         }
     }
@@ -20,32 +18,39 @@ pub fn ast_generator(output_dir: &str) -> std::io::Result<()> {
     define_ast(
         &output_dir,
         "Expr",
-        vec!["scanner", "error"],
+        vec!["scanner"],
         vec![
-            "Assign     : Token name, Box<Expr> value",
             "Binary     : Box<Expr> left, Token operator, Box<Expr> right",
-            "Call       : Box<Expr> callee, Token paren, Vec<Box<Expr>> arguments",
+            "Call       : Box<Expr> callee,  Box<Vec<Expr>> arguments",
+            "Assign     : usize id, String name, Box<Expr> value",
             "Grouping   : Box<Expr> expression",
-            "Literal    : Option<Literal> value",
             "Logical    : Box<Expr> left, Token operator, Box<Expr> right",
             "Unary      : Token operator, Box<Expr> right",
-            "Variable   : Token name",
+            "Variable   : usize id, String name",
         ],
+        Some(vec![
+        "Number(f64)",
+        "String(String)",
+        "Boolean(bool)",
+        "Nil",
+        ])
+
     )?;
     define_ast(
         &output_dir,
         "Stmt",
-        vec!["scanner", "error","expr"],
+        vec!["expr", "rc"],
         vec![
             "Block      : Vec<Stmt> statements",
-            "Expression : Box<Expr> expression",
-            "If         : Box<Expr> condition, Box<Stmt> then_branch, Option<Box<Stmt>> else_branch",
-            "Function   : Token name, Vec<Token> params, Vec<Stmt> body",
-            "Print      : Box<Expr> expression",
-            "Return     : Token keyword, Option<Box<Expr>> value",
-            "Var        : Token name, Option<Box<Expr>> initializer",
-            "While      : Box<Expr> condition, Box<Stmt> body"
+            "Expression : Expr expression",
+            "If         : Expr condition, Box<Stmt> then_branch, Option<Box<Stmt>> else_branch",
+            "Function   : String name, Rc<Vec<String>> parameters, Rc<Vec<Stmt>> body",
+            "Print      : Expr expression",
+            "Return     : Option<Expr> value",
+            "Var        : String name, Option<Expr> initializer",
+            "While      : Expr condition, Box<Stmt> body",
         ],
+        None,
     )?;
     Ok(())
 }
@@ -54,12 +59,17 @@ fn define_ast(
     filename: &str,
     imports: Vec<&str>,
     types_vec: Vec<&str>,
+    literals: Option<Vec<&str>>,
 ) -> std::io::Result<()> {
     let path = format!("{}/{}.rs", output_dir, filename.to_lowercase());
     let mut file = File::create(path)?;
     let mut tree_types: Vec<TreeType> = Vec::new();
     for import in imports {
+        if import.eq("rc") {
+            write!(file, "use std::rc::Rc;\n")?;
+        }else{
         write!(file, "use crate::{}::*;\n", import)?;
+        }
     }
     write!(file, "\n\n")?;
     for types in types_vec {
@@ -74,74 +84,23 @@ fn define_ast(
                 format!("{}: {}", field_type, name)
             })
             .collect();
-        let class_name = format!("{}{}", base_name, filename);
-        tree_types.push(TreeType::new(base_name.to_string(), class_name, fields))
+        tree_types.push(TreeType::new(base_name.to_string(), fields))
     }
-    write!(file, "#[derive(Debug, Clone, PartialEq, Eq, Hash)]\n")?;
+    write!(file, "#[derive(Debug, PartialEq)]\n")?;
     write!(file, "pub enum {} {{\n", filename)?;
-    for t in &tree_types {
-        write!(file, "\t{}({}),\n", t.base_name, t.class_name)?;
+    if let Some(literal) = literals{
+    for lit in &literal {
+        write!(file, "\t{},\n",lit)?;
     }
-    write!(file, "}}\n\n")?;
-
-    write!(file, "impl {} {{\n", filename)?;
-    write!(
-        file,
-        "\tpub fn accept<T>(&self, {}_visitor: &mut dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
-        filename.to_lowercase(),
-        filename
-    )?;
-    write!(file, "\t\tmatch self {{\n")?;
-    for t in &tree_types {
-        write!(
-            file,
-            "\t\t\t {}::{}(expr) => expr.accept({}_visitor),\n",
-            filename,
-            t.base_name,
-            filename.to_lowercase(),
-        )?;
     }
-    write!(file, "\t\t}}\n")?;
-    write!(file, "\t}}\n")?;
-    write!(file, "}}\n")?;
-
     for t in &tree_types {
-        write!(file, "#[derive(Debug, Clone, PartialEq, Eq, Hash)]\n")?;
-        write!(file, "pub struct {} {{\n", t.class_name)?;
+        write!(file, "\t{}{{\n",t.base_name)?;
         for f in &t.fields {
-            write!(file, "\t pub {},\n", f)?;
+            write!(file, "\t {},\n", f)?;
         }
-        write!(file, "}}\n\n")?;
-    }
-    write!(file, "pub trait {}Visitor<T> {{\n", filename)?;
-    for t in &tree_types {
-        let base = t.base_name.to_lowercase();
-        write!(
-            file,
-            "\t fn visit_{}_{}(&mut self, {}: &{}) -> Result<T, RloxError>;\n",
-            base,
-            filename.to_lowercase(),
-            filename.to_lowercase(),
-            t.class_name
-        )?;
+    write!(file, "\t}},\n\n")?;
     }
     write!(file, "}}\n\n")?;
 
-    for t in &tree_types {
-        write!(file, "impl {} {{\n", t.class_name)?;
-        write!(
-            file,
-            "\tfn accept<T>(&self, visitor: &mut dyn {}Visitor<T>) -> Result<T,RloxError> {{\n",
-            filename
-        )?;
-        write!(
-            file,
-            "\t\tvisitor.visit_{}_{}(self) \n",
-            t.base_name.to_lowercase(),
-            filename.to_lowercase()
-        )?;
-        write!(file, "\t}}\n")?;
-        write!(file, "}}\n\n")?;
-    }
     Ok(())
 }

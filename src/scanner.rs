@@ -54,7 +54,7 @@ impl Scanner {
         self.tokens.push({
             Token {
                 token_type: TokenType::Eof,
-                lexeme: vec![],
+                lexeme: "".to_string(),
                 literal: None,
                 line: self.line,
             }
@@ -146,7 +146,7 @@ impl Scanner {
     }
 
     fn add_token(&mut self, token: TokenType, literal: Option<Literal>) -> Result<(), RloxError> {
-        let lexeme = self.source[self.start..self.current].to_owned();
+        let lexeme = String::from_utf8(self.source[self.start..self.current].to_owned()).unwrap();
         self.tokens.push(Token {
             token_type: token,
             lexeme,
@@ -242,7 +242,7 @@ impl Scanner {
 //     let mut scanner = Scanner::default();
 //     scanner.scan_tokens(input)
 // }
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -331,10 +331,10 @@ impl PartialEq for Literal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
-    pub lexeme: Vec<u8>,
+    pub lexeme: String,
     pub literal: Option<Literal>,
     pub line: usize,
 }

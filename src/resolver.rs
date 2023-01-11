@@ -1,191 +1,200 @@
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::rc::Rc;
 
-use crate::{error::*, expr::*, interpreter::*, scanner::*, stmt::*};
+use crate::{error::*, expr::*, interpreter::*, stmt::*};
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum FunctionType {
+    None,
+    Function,
+}
 pub struct Resolver {
     pub interpreter: Interpreter,
     scopes: Vec<HashMap<String, bool>>,
+    current_function: FunctionType,
+    depth_map: HashMap<usize, usize>,
 }
 
 impl Resolver {
     pub fn new(interpreter: Interpreter) -> Self {
         Self {
             interpreter,
-            scopes: vec![],
+            scopes: Vec::new(),
+            depth_map: HashMap::new(),
+            current_function: FunctionType::None,
         }
     }
 
     fn begin_scope(&mut self) {
         self.scopes.push(HashMap::new())
     }
-
-    pub fn resolve_statements(&mut self, statements: Vec<Stmt>) -> Result<(), RloxError> {
-        for statement in statements {
+    pub fn resolve(&mut self, statements: &Vec<Stmt>) -> Result<(), RloxError> {
+        self.resolve_statements(statements)?;
+        let scopes = std::mem::take(&mut self.depth_map);
+        self.interpreter.add_scopes(scopes);
+        Ok(())
+    }
+    pub fn resolve_statements(&mut self, statements: &Vec<Stmt>) -> Result<(), RloxError> {
+        for statement in statements.deref() {
             self.resolve_statement(statement)?;
         }
         Ok(())
     }
 
-    fn resolve_statement(&mut self, statement: Stmt) -> Result<(), RloxError> {
-        statement.accept(self)?;
+    fn resolve_statement(&mut self, statement: &Stmt) -> Result<(), RloxError> {
+        match statement {
+            Stmt::Block { statements } => {
+                self.begin_scope();
+                self.resolve_statements(statements.as_ref())?;
+                self.end_scope();
+            }
+            Stmt::Expression { expression } => {
+                self.resolve_expression(expression)?;
+            }
+            Stmt::Print { expression } => {
+                self.resolve_expression(expression)?;
+            }
+            Stmt::Var { name, initializer } => {
+                self.declare(name);
+                if let Some(init) = initializer {
+                    self.resolve_expression(init)?;
+                };
+                self.define(name);
+            }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.resolve_expression(condition)?;
+                self.resolve_statement(then_branch.as_ref())?;
+                if let Some(stmt) = else_branch {
+                    self.resolve_statement(stmt)?;
+                }
+            }
+            Stmt::While { condition, body } => {
+                self.resolve_expression(condition)?;
+                self.resolve_statement(body.as_ref())?;
+            }
+            Stmt::Function {
+                name,
+                parameters,
+                body,
+            } => {
+                self.declare(name);
+                self.define(name);
+                self.resolve_function(name, parameters, body, FunctionType::Function)?;
+            }
+            Stmt::Return { value } => {
+                if self.current_function == FunctionType::None {
+                    return Err(RloxError::InterpreterError);
+                }
+                if let Some(val) = value {
+                    self.resolve_expression(val)?;
+                }
+            }
+        }
+
         Ok(())
     }
 
-    fn resolve_expression(&mut self, expression: Expr) -> Result<(), RloxError> {
-        expression.accept(self)?;
+    fn resolve_expression(&mut self, expr: &Expr) -> Result<(), RloxError> {
+        match expr {
+            Expr::Binary {
+                left,
+                operator: _,
+                right,
+            } => {
+                self.resolve_expression(left)?;
+                self.resolve_expression(right)?;
+            }
+            Expr::Call { callee, arguments } => {
+                self.resolve_expression(callee)?;
+                for arg in arguments.as_ref() {
+                    self.resolve_expression(arg)?;
+                }
+            }
+            Expr::Grouping { expression } => {
+                self.resolve_expression(expression)?;
+            }
+            Expr::Unary { operator: _, right } => {
+                self.resolve_expression(right)?;
+            }
+            Expr::Logical {
+                left,
+                operator: _,
+                right,
+            } => {
+                self.resolve_expression(left)?;
+                self.resolve_expression(right)?;
+            }
+            Expr::Variable { id, name } => {
+                if let Some(local) = self.scopes.last() {
+                    if local.get::<str>(name) == Some(&false) {
+                        return Err(RloxError::InterpreterError);
+                    }
+                    self.resolve_local(*id, name);
+                }
+            }
+            Expr::Assign { id, name, value } => {
+                self.resolve_expression(value)?;
+                self.resolve_local(*id, name);
+            }
+            _ => {}
+        }
         Ok(())
     }
     fn end_scope(&mut self) {
         self.scopes.pop();
     }
 
-    fn declare(&mut self, name: &Token) {
+    fn declare(&mut self, name: &str) {
         match self.scopes.last_mut() {
             Some(scope) => {
-                let name = String::from_utf8(name.lexeme.clone()).expect("valid string");
-                scope.insert(name, false);
+                scope.insert(name.to_string(), false);
             }
             None => {}
         }
     }
 
-    fn define(&mut self, name: &Token) {
+    fn define(&mut self, name: &str) {
         match self.scopes.last_mut() {
             Some(scope) => {
-                let name = String::from_utf8(name.lexeme.clone()).expect("valid string");
-                scope.insert(name, true);
+                scope.insert(name.to_string(), true);
             }
             None => {}
         }
     }
 
-    fn resolve_local(&mut self, expr: &Expr, name: Token) -> Result<(), RloxError> {
+    fn resolve_local(&mut self, depth: usize, name: &str) {
         for (index, scope) in self.scopes.iter().rev().enumerate() {
-            let name_lexeme = String::from_utf8(name.lexeme.clone()).expect("valid string");
-            if scope.contains_key(&name_lexeme) {
-                self.interpreter.resolve(expr, index);
-                return Ok(());
+            if scope.contains_key(name) {
+                self.depth_map.insert(depth, index);
             }
         }
-        Ok(())
     }
 
-    fn resolve_function(&mut self, stmt: &FunctionStmt)-> Result<(), RloxError> {
+    fn resolve_function(
+        &mut self,
+        name: &str,
+        parameters: &Vec<String>,
+        body: &Rc<Vec<Stmt>>,
+        function_type: FunctionType,
+    ) -> Result<(), RloxError> {
+        self.declare(name);
+        self.define(name);
+        let enclosing_function = self.current_function;
+        self.current_function = function_type;
         self.begin_scope();
-        for token in &stmt.params {
-            self.declare(token);
-            self.define(token);
+        for token in parameters {
+            self.declare(&token);
+            self.define(&token);
         }
 
-        self.resolve_statements(stmt.body.clone())?;
+        self.resolve_statements(&body)?;
         self.end_scope();
-        Ok(())
-    }
-}
-
-impl StmtVisitor<()> for Resolver {
-    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), RloxError> {
-        self.begin_scope();
-        self.resolve_statements(stmt.statements.clone())?;
-        self.end_scope();
-
-        Ok(())
-    }
-
-    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> Result<(), RloxError> {
-        self.resolve_expression(*stmt.expression.clone())
-    }
-
-    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> Result<(), RloxError> {
-        self.resolve_expression(*stmt.condition.clone())?;
-        self.resolve_statement(*stmt.then_branch.clone())?;
-        if let Some(else_branch) = &stmt.else_branch {
-            self.resolve_statement(*else_branch.clone())?;
-        };
-        Ok(())
-    }
-
-    fn visit_function_stmt(&mut self, stmt: &FunctionStmt) -> Result<(), RloxError> {
-        self.declare(&stmt.name);
-        self.define(&stmt.name);
-        self.resolve_function(stmt)?;
-        Ok(())
-    }
-
-    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> Result<(), RloxError> {
-        self.resolve_expression(*stmt.expression.clone())
-    }
-
-    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> Result<(), RloxError> {
-        if let Some(val) = &stmt.value {
-            self.resolve_expression(*val.clone())?;
-        };
-        Ok(())
-    }
-
-    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), RloxError> {
-        self.declare(&stmt.name);
-        if let Some(init) = &stmt.initializer {
-            self.resolve_expression(*init.clone())?;
-        };
-        self.define(&stmt.name);
-        Ok(())
-    }
-
-    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> Result<(), RloxError> {
-        self.resolve_expression(*stmt.condition.clone())?;
-        self.resolve_statement(*stmt.body.clone())
-    }
-}
-impl ExprVisitor<()> for Resolver {
-    fn visit_assign_expr(&mut self, expr: &AssignExpr) -> Result<(), RloxError> {
-        self.resolve_expression(*expr.value.clone())?;
-        self.resolve_local(&expr.value.clone(), expr.name.clone())
-    }
-
-    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> Result<(), RloxError> {
-        self.resolve_expression(*expr.left.clone())?;
-        self.resolve_expression(*expr.right.clone())
-    }
-
-    fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<(), RloxError> {
-        self.resolve_expression(*expr.callee.clone())?;
-        for arg in &expr.arguments {
-            self.resolve_expression(*arg.clone())?;
-        }
-        Ok(())
-    }
-
-    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<(), RloxError> {
-        self.resolve_expression(*expr.expression.clone())
-    }
-
-    fn visit_literal_expr(&mut self, _expr: &LiteralExpr) -> Result<(), RloxError> {
-        Ok(())
-    }
-
-    fn visit_logical_expr(&mut self, expr: &LogicalExpr) -> Result<(), RloxError> {
-        self.resolve_expression(*expr.left.clone())?;
-        self.resolve_expression(*expr.right.clone())
-    }
-
-    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> Result<(), RloxError> {
-        self.resolve_expression(*expr.right.clone())
-    }
-
-    fn visit_variable_expr(&mut self, expr: &VariableExpr) -> Result<(), RloxError> {
-        if !self.scopes.is_empty() {
-            let name = String::from_utf8(expr.name.lexeme.clone()).expect("valid string");
-            if let Some(false) = self.scopes.last().expect("not empty").get(&name) {
-                return Err(RloxError::RuntimeError {
-                    lexeme: name,
-                    message: "Can't read local variable in its own initializer.".to_string(),
-                });
-            }
-        }
-let tt = Expr::Variable( VariableExpr{ name: expr.name.clone() });
-        self.resolve_local(&tt, expr.name.clone())?;
-
+        self.current_function = enclosing_function;
         Ok(())
     }
 }

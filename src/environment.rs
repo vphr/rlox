@@ -1,11 +1,15 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::Rc,
+};
 
-use crate::{error::*, interpreter::*, scanner::*};
+use crate::{error::*, interpreter::*};
 
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub enclosing: Option<Rc<RefCell<Environment>>>,
-    pub values: RefCell<HashMap<String, Value>>,
+    pub values: RefCell<HashMap<String, Rc<Value>>>,
 }
 
 impl Default for Environment {
@@ -18,72 +22,61 @@ impl Default for Environment {
 }
 
 impl Environment {
-    pub fn new(enclosing: Option<Rc<RefCell<Environment>>>) -> Environment {
+    pub fn new(enclosing: Rc<RefCell<Environment>>) -> Environment {
         Self {
-            enclosing,
+            enclosing: Some(enclosing),
             values: RefCell::new(HashMap::new()),
         }
     }
-    pub fn define(&mut self, name: &Vec<u8>, value: Value) {
-        let name = String::from_utf8(name.to_vec()).expect("valid string");
+    pub fn define(&self, name: &str, value: Rc<Value>) {
         self.values
             .borrow_mut()
-            .insert(name.to_string(), value.clone());
+            .insert(name.to_string(), value);
     }
-    pub fn get_at(&self, distance: &usize, token: &Token) -> Result<Value, RloxError> {
-        let name = String::from_utf8(token.lexeme.to_vec()).expect("valid string");
-        match self.ancestor(distance).values.borrow().get(&name) {
-            Some(val) => Ok(val.clone()),
-            None => Err(RloxError::InterpreterError),
+    pub fn get_at(&self, distance: usize, token: &str) -> Result<Rc<Value>, RloxError> {
+        if 0 ==distance {
+            {
+                self.get(token)
+            }
+        } else {
+            self.enclosing
+                .as_ref()
+                .unwrap()
+                .borrow()
+                .get_at(distance - 1, token)
         }
     }
 
-    pub fn get(&self, token: &Token) -> Result<Value, RloxError> {
-        let cloned_lexeme_vec = token.lexeme.to_vec();
-        let name = String::from_utf8(cloned_lexeme_vec).expect("valid string");
+    pub fn get(&self, token: &str) -> Result<Rc<Value>, RloxError> {
 
-        match self.values.borrow().get(&name) {
+        match self.values.borrow().get(token) {
             Some(val) => Ok(val.clone()),
             None => match &self.enclosing {
                 Some(enclosing) => enclosing.borrow().get(token),
                 None => Err(RloxError::RuntimeError {
-                    lexeme: name.clone(),
-                    message: format!("Trying to get undefined variable {}.", &name),
+                    lexeme: token.to_string(),
+                    message: format!("Trying to get undefined variable {}.", &token),
                 }),
             },
         }
     }
-    pub fn assign(&mut self, token: &Token, value: &Value) -> Result<(), RloxError> {
-        let cloned_lexeme_vec = token.lexeme.to_vec();
-        let name = String::from_utf8(cloned_lexeme_vec).expect("valid string");
+    pub fn assign_at(
+        &mut self,
+        distance: &usize,
+        token: &str,
+        value: Rc<Value>,
+    ) -> Result<(), RloxError> {
 
-        if self.values.borrow().contains_key(&name) {
-            self.define(&token.lexeme, value.clone());
-            return Ok(());
-        }
-
-        match &mut self.enclosing {
-            Some(enclosing) => enclosing.borrow_mut().assign(token, value),
-            None => Err(RloxError::RuntimeError {
-                lexeme: name.clone(),
-                message: format!("Trying to assign undefined variable '{}'.", name),
-            }),
+        if 0.eq(distance) {
+            self.values.borrow_mut().insert(token.to_string(), value.clone());
+            Ok(())
+        } else {
+            self.enclosing
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .assign_at(&(distance - 1), token, value)
         }
     }
-    pub fn assign_at(&mut self,distance: &usize, token: &Token, value: &Value) -> Result<(), RloxError> {
-        let name = String::from_utf8(token.lexeme.to_vec()).expect("valid string");
-        self.ancestor(distance).values.borrow_mut().insert(name, value.clone());
-        Ok(())
-    }
 
-    fn ancestor(&self, distance: &usize) -> Self {
-        let mut environment = self.clone();
-        for _ in 0..*distance {
-            if let Some(enclosing) = &self.enclosing {
-                environment = enclosing.borrow().clone();
-            }
-        }
-
-        environment
-    }
 }

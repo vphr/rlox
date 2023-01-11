@@ -1,13 +1,12 @@
-// mod ast_printer;
 mod environment;
 mod error;
-mod expr;
 mod interpreter;
 mod parser;
 mod scanner;
 mod stmt;
 mod callable;
 mod resolver;
+mod expr;
 
 use error::RloxError;
 use std::{
@@ -17,7 +16,6 @@ use std::{
     process::exit,
 };
 
-// use crate::ast_printer::AstPrinter;
 use crate::interpreter::*;
 use crate::parser::*;
 use crate::resolver::*;
@@ -33,6 +31,7 @@ impl Rlox {
         }
     }
     pub fn run_file(&mut self, path: &str) -> std::io::Result<()> {
+
         let file = read_to_string(path)?;
         match self.run(&file) {
             Ok(_) => {}
@@ -66,12 +65,10 @@ impl Rlox {
             tokens: scanner.to_vec(),
             current: 0,
         };
-        // println!("{:#?}", scanner);
         let statements = parser.parse()?;
-        // println!("{:#?}", statements);
 
         let mut resolver = Resolver::new(self.interpreter.clone());
-        resolver.resolve_statements(statements.clone())?;
+        resolver.resolve(&statements)?;
         resolver.interpreter.interpret(statements)
     }
 }

@@ -1,13 +1,26 @@
+use std::rc::Rc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+
 use crate::error::*;
-use crate::expr::*;
 use crate::scanner::*;
 use crate::stmt::*;
+use crate::expr::*;
 
 #[derive(Debug)]
 pub struct Parser {
     pub tokens: Vec<Token>,
     pub current: usize,
 }
+
+
+// TODO find a better solution
+static NEXT_EXPRESSION_ID: AtomicUsize = AtomicUsize::new(0);
+
+fn next_id() -> usize {
+    NEXT_EXPRESSION_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 
 impl Parser {
     pub fn parse(&mut self) -> Result<Vec<Stmt>, RloxError> {
@@ -27,11 +40,11 @@ impl Parser {
         while self.match_token(vec![TokenType::BangEqual, TokenType::EqualEqual]) {
             let operator: Token = self.previous();
             let right: Expr = self.comparison()?;
-            expr = Expr::Binary(BinaryExpr {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
-            })
+            }
         }
         Ok(expr)
     }
@@ -56,11 +69,11 @@ impl Parser {
         ]) {
             let operator = self.previous();
             let right = self.term()?;
-            expr = Expr::Binary(BinaryExpr {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
-            })
+            }
         }
         Ok(expr)
     }
@@ -95,11 +108,11 @@ impl Parser {
         while self.match_token(vec![TokenType::Minus, TokenType::Plus]) {
             let operator = self.previous();
             let right = self.factor()?;
-            expr = Expr::Binary(BinaryExpr {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
-            })
+            }
         }
         Ok(expr)
     }
@@ -109,11 +122,11 @@ impl Parser {
         while self.match_token(vec![TokenType::Slash, TokenType::Star]) {
             let operator = self.previous();
             let right = self.unary()?;
-            expr = Expr::Binary(BinaryExpr {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
-            })
+            }
         }
         Ok(expr)
     }
@@ -122,39 +135,43 @@ impl Parser {
         if self.match_token(vec![TokenType::Bang, TokenType::Minus]) {
             let operator = self.previous();
             let right = self.unary()?;
-            Expr::Unary(UnaryExpr {
-                operator,
+            Expr::Unary {
                 right: Box::new(right),
-            });
+                operator,
+            };
         }
         self.call()
     }
 
     fn primary(&mut self) -> Result<Expr, RloxError> {
         if self.match_token(vec![TokenType::False]) {
-            return Ok(Expr::Literal(LiteralExpr {
-                value: Some(Literal::False),
-            }));
+            return Ok(Expr::Boolean(false));
         }
         if self.match_token(vec![TokenType::True]) {
-            return Ok(Expr::Literal(LiteralExpr {
-                value: Some(Literal::True),
-            }));
+            return Ok(Expr::Boolean(true));
         }
         if self.match_token(vec![TokenType::Nil]) {
-            return Ok(Expr::Literal(LiteralExpr {
-                value: Some(Literal::Nil),
-            }));
+            return Ok(Expr::Nil);
         }
-        if self.match_token(vec![TokenType::Number, TokenType::String]) {
-            return Ok(Expr::Literal(LiteralExpr {
-                value: self.previous().literal,
-            }));
+        if self.match_token(vec![TokenType::String]) {
+            let value =if let Some(Literal::Str(val)) = self.previous().literal{
+                val
+            }else{
+                return Err(RloxError::InterpreterError);
+            };
+            // let value = Literal::Str(self.previous().literal);
+            return Ok(Expr::String(value));
+        }
+        if self.match_token(vec![TokenType::Number]) {
+            let value =if let Some(Literal::Number(val)) = self.previous().literal{
+                val
+            }else{
+                return Err(RloxError::InterpreterError);
+            };
+            return Ok(Expr::Number(value));
         }
         if self.match_token(vec![TokenType::Identifier]) {
-            return Ok(Expr::Variable(VariableExpr {
-                name: self.previous(),
-            }));
+            return Ok(Expr::Variable { id: next_id(), name: self.previous().lexeme });
         }
         if self.match_token(vec![TokenType::LeftParen]) {
             let expr = self.expression()?;
@@ -162,21 +179,16 @@ impl Parser {
                 TokenType::RightParen,
                 "Expect ')' after expression.".to_string(),
             )?;
-            return Ok(Expr::Grouping(GroupingExpr {
+            return Ok(Expr::Grouping {
                 expression: Box::new(expr),
-            }));
-        }
-        if self.match_token(vec![TokenType::Identifier]) {
-            return Ok(Expr::Literal(LiteralExpr {
-                value: self.previous().literal,
-            }));
+            });
         }
         Err(RloxError::ParseError {
             token: self.tokens[self.current].clone(),
             current: self.current,
             message: "failed to parse".to_string(),
         })
-    }
+        } 
     fn consume(&mut self, token: TokenType, message: String) -> Result<Token, RloxError> {
         if self.check(token) {
             return Ok(self.advance());
@@ -226,9 +238,9 @@ impl Parser {
             return self.return_statement();
         }
         if self.match_token(vec![TokenType::LeftBrace]) {
-            return Ok(Stmt::Block(BlockStmt {
+            return Ok(Stmt::Block {
                 statements: self.block()?,
-            }));
+            });
         }
         self.expression_statement()
     }
@@ -236,9 +248,7 @@ impl Parser {
     fn print_statement(&mut self) -> Result<Stmt, RloxError> {
         let value = self.expression()?;
         self.consume(TokenType::Semicolon, "Expect ';' after value.".to_string())?;
-        return Ok(Stmt::Print(PrintStmt {
-            expression: Box::new(value),
-        }));
+        return Ok(Stmt::Print { expression: value });
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, RloxError> {
@@ -247,9 +257,7 @@ impl Parser {
             TokenType::Semicolon,
             "Expect ';' after expression.".to_string(),
         )?;
-        return Ok(Stmt::Expression(ExpressionStmt {
-            expression: Box::new(value),
-        }));
+        return Ok(Stmt::Expression { expression: value });
     }
 
     fn declaration(&mut self) -> Result<Stmt, RloxError> {
@@ -271,14 +279,17 @@ impl Parser {
         let name = self.consume(TokenType::Identifier, "expect variable name".to_string())?;
         let initializer = if self.match_token(vec![TokenType::Equal]) {
             let res = self.expression()?;
-            Some(Box::new(res))
+            Some(res)
         } else {
             None
         };
 
         self.consume(TokenType::Semicolon, "Expect ';' after value.".to_string())?;
 
-        Ok(Stmt::Var(VarStmt { name, initializer }))
+        Ok(Stmt::Var {
+            name: name.lexeme,
+            initializer,
+        })
     }
 
     fn assignment(&mut self) -> Result<Expr, RloxError> {
@@ -288,11 +299,13 @@ impl Parser {
             let equals = self.previous();
             let value = self.assignment()?;
 
-            if let Expr::Variable(v) = expr {
-                return Ok(Expr::Assign(AssignExpr {
-                    name: v.name,
+
+            if let Expr::Variable { id, name } = expr {
+                return Ok(Expr::Assign {
+                    name,
                     value: Box::new(value),
-                }));
+                    id,
+                });
             };
 
             return Err(RloxError::ParseError {
@@ -328,11 +341,11 @@ impl Parser {
         } else {
             None
         };
-        Ok(Stmt::If(IfStmt {
-            condition: Box::new(condition),
+        Ok(Stmt::If {
+            condition,
             then_branch: Box::new(then_branch),
             else_branch,
-        }))
+        })
     }
 
     fn or(&mut self) -> Result<Expr, RloxError> {
@@ -340,11 +353,11 @@ impl Parser {
         while self.match_token(vec![TokenType::Or]) {
             let operator = self.previous();
             let right = self.and()?;
-            expr = Expr::Logical(LogicalExpr {
+            expr = Expr::Logical {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
-            })
+            }
         }
         Ok(expr)
     }
@@ -354,22 +367,22 @@ impl Parser {
         while self.match_token(vec![TokenType::And]) {
             let operator = self.previous();
             let right = self.equality()?;
-            expr = Expr::Logical(LogicalExpr {
+            expr = Expr::Logical{
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
-            })
+            }
         }
         Ok(expr)
     }
 
     fn while_statement(&mut self) -> Result<Stmt, RloxError> {
         self.consume(TokenType::LeftParen, "Expect '(' after block.".to_string())?;
-        let condition = Box::new(self.expression()?);
+        let condition =self.expression()?;
         self.consume(TokenType::RightParen, "Expect ')' after block.".to_string())?;
         let body = Box::new(self.statement()?);
 
-        Ok(Stmt::While(WhileStmt { condition, body }))
+        Ok(Stmt::While { condition, body })
     }
 
     fn for_statement(&mut self) -> Result<Stmt, RloxError> {
@@ -398,6 +411,7 @@ impl Parser {
         } else {
             None
         };
+
         self.consume(
             TokenType::RightParen,
             "Expect ')' after for clause.".to_string(),
@@ -406,29 +420,22 @@ impl Parser {
         let mut body = self.statement()?;
 
         if let Some(inc) = increment {
-            body = Stmt::Block(BlockStmt {
-                statements: vec![
-                    body,
-                    Stmt::Expression(ExpressionStmt {
-                        expression: Box::new(inc),
-                    }),
-                ],
-            })
+            body = Stmt::Block {
+                statements: vec![body, Stmt::Expression { expression: inc }],
+            }
         }
         if condition.is_none() {
-            condition = Some(Expr::Literal(LiteralExpr {
-                value: Some(Literal::False),
-            }))
+            condition = Some(Expr::Boolean(false))
         }
-        body = Stmt::While(WhileStmt {
-            condition: Box::new(condition.expect("cannot be none we just set the value")),
+        body = Stmt::While {
+            condition: condition.expect("cannot be none we just set the value"),
             body: Box::new(body),
-        });
+        };
 
         if let Some(init) = initializer {
-            body = Stmt::Block(BlockStmt {
+            body = Stmt::Block {
                 statements: vec![init, body],
-            })
+            }
         };
         Ok(body)
     }
@@ -446,7 +453,7 @@ impl Parser {
     }
 
     fn finish_call(&mut self, expr: Expr) -> Result<Expr, RloxError> {
-        let mut arguments: Vec<Box<Expr>> = vec![];
+        let mut arguments: Vec<Expr> = vec![];
 
         if !self.check(TokenType::RightParen) {
             loop {
@@ -457,23 +464,22 @@ impl Parser {
                         message: "Can't have more than 255 arguments.".to_string(),
                     });
                 }
-                arguments.push(Box::new(self.expression()?));
+                arguments.push(self.expression()?);
                 if !self.match_token(vec![TokenType::Comma]) {
                     break;
                 }
             }
         }
 
-        let paren = self.consume(
+        self.consume(
             TokenType::RightParen,
             "Expected ')' after arguments".to_string(),
         )?;
 
-        Ok(Expr::Call(CallExpr {
+        Ok(Expr::Call {
             callee: Box::new(expr),
-            paren,
-            arguments,
-        }))
+            arguments: Box::new(arguments),
+        })
     }
 
     fn fun_declaration(&mut self, kind: &str) -> Result<Stmt, RloxError> {
@@ -487,7 +493,7 @@ impl Parser {
             format!("Expect '(' after {kind} name.").to_string(),
         )?;
 
-        let mut parameters: Vec<Token> = vec![];
+        let mut parameters: Vec<String> = vec![];
 
         if !self.check(TokenType::RightParen) {
             loop {
@@ -501,7 +507,7 @@ impl Parser {
                 parameters.push(self.consume(
                     TokenType::Identifier,
                     format!("Expect parameter name.").to_string(),
-                )?);
+                )?.lexeme);
                 if !self.match_token(vec![TokenType::Comma]) {
                     break;
                 }
@@ -518,19 +524,18 @@ impl Parser {
             format!("Expect '{{' before {kind} body.").to_string(),
         )?;
 
-        let body = self.block()?;
+        let body = Rc::new(self.block()?);
 
-        Ok(Stmt::Function(FunctionStmt {
-            name,
-            params: parameters,
+        Ok(Stmt::Function {
+            name: name.lexeme,
             body,
-        }))
+            parameters: Rc::new(parameters),
+        })
     }
 
     fn return_statement(&mut self) -> Result<Stmt, RloxError> {
-        let keyword = self.previous();
         let value = if !self.check(TokenType::Semicolon) {
-            Some(Box::new(self.expression()?))
+            Some(self.expression()?)
         } else {
             None
         };
@@ -539,6 +544,6 @@ impl Parser {
             TokenType::Semicolon,
             "expected ';' after return value".to_string(),
         )?;
-        Ok(Stmt::Return(ReturnStmt { keyword, value }))
+        Ok(Stmt::Return { value })
     }
 }
